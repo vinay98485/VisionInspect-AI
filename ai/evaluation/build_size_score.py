@@ -330,7 +330,7 @@ with open(
     writer.writerow(
         [
             "category",
-            "",
+            "p10",
             "p25",
             "p50",
             "p75",
@@ -350,7 +350,7 @@ with open(
         writer.writerow(
             [
                 category,
-                f"{values['']:.6f}",
+                f"{values['p10']:.6f}",
                 f"{values['p25']:.6f}",
                 f"{values['p50']:.6f}",
                 f"{values['p75']:.6f}",

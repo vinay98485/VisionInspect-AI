@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import Navbar from "../components/Navbar";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import {
   getCurrentUser,
   uploadImage,
@@ -9,6 +8,13 @@ import {
   ForbiddenError,
   ApiError,
 } from "../services/api";
+import {
+  UploadIcon,
+  CameraIcon,
+  AlertIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+} from "../components/Icons";
 
 const CATEGORIES = [
   "bottle",
@@ -45,6 +51,9 @@ const DEFECT_TYPES = [
 ];
 
 function Upload() {
+  const navigate = useNavigate();
+  const { setHeaderConfig } = useOutletContext() || {};
+
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
 
@@ -60,16 +69,25 @@ function Upload() {
   const [error, setError] = useState(null);
   const [errorType, setErrorType] = useState(null);
 
-  const navigate = useNavigate();
+  useEffect(() => {
+    setHeaderConfig?.({
+      title: "New AI Inspection",
+      subtitle: "Execute multi-stage deep learning pipeline on specimen frames",
+      actions: (
+        <Link to="/inspections" className="btn-header-secondary">
+          <span>Inspection History →</span>
+        </Link>
+      ),
+    });
+  }, [setHeaderConfig]);
 
   useEffect(() => {
     const checkRole = async () => {
       try {
         const userData = await getCurrentUser();
-
         if (userData.role_id === 2) {
           setError(
-            "Factory Supervisors do not have upload privileges. Inspection image uploads are restricted to Quality Engineers."
+            "Factory Supervisors do not have upload privileges. Image uploads and inspection execution are reserved for Quality Engineers."
           );
           setErrorType("forbidden");
         }
@@ -91,9 +109,7 @@ function Upload() {
     if (!selectedFile) return;
 
     if (!["image/jpeg", "image/png"].includes(selectedFile.type)) {
-      setError(
-        "Invalid file format. Only JPEG and PNG images are supported."
-      );
+      setError("Invalid file format. Only JPEG and PNG images are supported.");
       setErrorType("api");
       return;
     }
@@ -160,10 +176,7 @@ function Upload() {
     let stepTimer = null;
 
     try {
-      /*
-       * Step 1:
-       * Store the uploaded image in the backend.
-       */
+      // Step 1: Upload image binary
       const uploadedImage = await uploadImage(file);
       setInspectionStep(2);
 
@@ -171,10 +184,7 @@ function Upload() {
         setInspectionStep((prev) => (prev < 4 ? prev + 1 : prev));
       }, 600);
 
-      /*
-       * Step 2:
-       * Run the real AI inspection pipeline with automatic classification.
-       */
+      // Step 2: Trigger AI inference pipeline
       const inspectionResult = await inspectImage(
         uploadedImage.id,
         autoClassify ? (category || null) : category,
@@ -184,10 +194,6 @@ function Upload() {
       if (stepTimer) clearInterval(stepTimer);
       setInspectionStep(5);
 
-      /*
-       * Combine upload information with the
-       * actual inspection result.
-       */
       setSuccessData({
         ...uploadedImage,
         inspection: inspectionResult,
@@ -211,9 +217,7 @@ function Upload() {
         setError(err.message);
         setErrorType("api");
       } else {
-        setError(
-          "Unable to complete the image inspection. Please check the backend server."
-        );
+        setError("Unable to complete the image inspection. Please check the backend service.");
         setErrorType("api");
       }
     } finally {
@@ -224,482 +228,329 @@ function Upload() {
 
   if (errorType === "forbidden") {
     return (
-      <div className="app-shell">
-        <Navbar />
-
-        <main className="main-content">
-          <div
-            className="card"
-            style={{ maxWidth: "600px", margin: "3rem auto" }}
+      <div className="notice-card error-notice">
+        <div className="notice-icon"><AlertIcon size={24} /></div>
+        <div className="notice-content">
+          <h3 className="notice-title">Upload Restricted</h3>
+          <p className="notice-desc">{error}</p>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => navigate("/supervisor/dashboard")}
+            style={{ marginTop: "1rem" }}
           >
-            <div className="card-body">
-              <div
-                className="state-container"
-                style={{ padding: "1.5rem" }}
-              >
-                <div
-                  className="state-icon"
-                  style={{ color: "var(--danger)" }}
-                >
-                  🚫
-                </div>
-
-                <h2 className="state-title">Upload Restricted</h2>
-
-                <p className="state-desc">{error}</p>
-
-                <div style={{ marginTop: "1rem" }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() =>
-                      navigate("/supervisor/dashboard")
-                    }
-                  >
-                    Go to Supervisor Console
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
+            Go to Supervisor Console
+          </button>
+        </div>
       </div>
     );
   }
 
   if (errorType === "auth") {
     return (
-      <div className="app-shell">
-        <Navbar />
-
-        <main className="main-content">
-          <div
-            className="card"
-            style={{ maxWidth: "600px", margin: "3rem auto" }}
+      <div className="notice-card error-notice">
+        <div className="notice-icon"><AlertIcon size={24} /></div>
+        <div className="notice-content">
+          <h3 className="notice-title">Session Expired</h3>
+          <p className="notice-desc">{error}</p>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => navigate("/login")}
+            style={{ marginTop: "1rem" }}
           >
-            <div className="card-body">
-              <div
-                className="state-container"
-                style={{ padding: "1.5rem" }}
-              >
-                <div
-                  className="state-icon"
-                  style={{ color: "var(--danger)" }}
-                >
-                  ⚠️
-                </div>
-
-                <h2 className="state-title">Session Expired</h2>
-
-                <p className="state-desc">{error}</p>
-
-                <div style={{ marginTop: "1rem" }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => navigate("/login")}
-                  >
-                    Log in again
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
+            Log in again
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="app-shell">
-      <Navbar />
-
-      <main className="main-content">
-        <div className="page-header">
-          <div className="page-title-group">
-            <h1 className="page-title">AI Image Inspection</h1>
-
-            <p className="page-subtitle">
-              Upload a manufacturing image and run the VisionInspect
-              inspection pipeline.
-            </p>
-          </div>
-
-          <div className="page-actions">
-            <Link
-              to="/dashboard"
-              className="btn btn-secondary"
-            >
-              ← Back to Dashboard
-            </Link>
-          </div>
+    <div className="upload-page-wrapper">
+      {/* Error alert */}
+      {error && (
+        <div className="alert-banner alert-error" style={{ marginBottom: "1.5rem" }}>
+          <AlertIcon size={16} />
+          <span>{error}</span>
+          <button type="button" className="alert-dismiss-btn" onClick={() => setError(null)}>
+            ×
+          </button>
         </div>
-        {error && (
-          <div className="alert alert-error">
-            <span>{error}</span>
-          </div>
-        )}
+      )}
 
-        {successData && (
-          <div
-            className="alert alert-success"
-            style={{
-              flexDirection: "column",
-              gap: "1rem",
-              padding: "1.25rem",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
-              <div style={{ fontWeight: 700, fontSize: "1.05rem" }}>
-                ✓ Image "{successData.original_filename}" Inspected Successfully
+      {/* Success Banner */}
+      {successData && (
+        <div className="inspection-result-banner">
+          <div className="result-banner-header">
+            <div className="result-banner-title-group">
+              <span className="success-icon-badge"><CheckIcon size={18} /></span>
+              <div>
+                <h3 className="result-banner-title">Specimen Inspected Successfully</h3>
+                <span className="result-banner-sub">{successData.original_filename} • Record #{successData.id}</span>
               </div>
-              <span
-                className={`badge ${
-                  successData.inspection?.quality_decision === "Accept"
-                    ? "badge-approved"
-                    : "badge-rejected"
-                }`}
-                style={{ fontSize: "0.9rem", padding: "0.3rem 0.75rem" }}
-              >
-                Decision: {successData.inspection?.quality_decision || "Completed"}
-              </span>
             </div>
 
-            {/* Quick Metrics Grid */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                gap: "0.75rem",
-                marginTop: "0.25rem",
-              }}
+            <span
+              className={`status-pill ${
+                successData.inspection?.quality_decision === "Reject" ? "status-danger" : "status-healthy"
+              }`}
+              style={{ fontSize: "0.85rem", padding: "0.35rem 0.8rem" }}
             >
-              <div style={{ background: "rgba(255, 255, 255, 0.05)", padding: "0.6rem 0.8rem", borderRadius: "6px" }}>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>AI Category</div>
-                <div style={{ fontWeight: 600, textTransform: "capitalize" }}>
-                  {successData.inspection?.predicted_category || successData.inspection?.category || "—"}
-                </div>
-              </div>
-
-              <div style={{ background: "rgba(255, 255, 255, 0.05)", padding: "0.6rem 0.8rem", borderRadius: "6px" }}>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>AI Defect Type</div>
-                <div style={{ fontWeight: 600, textTransform: "capitalize" }}>
-                  {successData.inspection?.resolved_defect_status || successData.inspection?.predicted_defect_type || successData.inspection?.defect_type || "—"}
-                </div>
-              </div>
-
-              <div style={{ background: "rgba(255, 255, 255, 0.05)", padding: "0.6rem 0.8rem", borderRadius: "6px" }}>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Confidence</div>
-                <div style={{ fontWeight: 600 }}>
-                  {successData.inspection?.classification_confidence != null
-                    ? `${Number(successData.inspection.classification_confidence).toFixed(1)}%`
-                    : "—"}
-                </div>
-              </div>
-
-              <div style={{ background: "rgba(255, 255, 255, 0.05)", padding: "0.6rem 0.8rem", borderRadius: "6px" }}>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Severity Level</div>
-                <div style={{ fontWeight: 600 }}>
-                  {successData.inspection?.severity_level || "—"}
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                gap: "0.75rem",
-                marginTop: "0.5rem",
-              }}
-            >
-              <Link
-                to={`/images/${successData.id}`}
-                className="btn btn-sm btn-primary"
-              >
-                View Full Inspection #{successData.id} →
-              </Link>
-
-              <button
-                type="button"
-                className="btn btn-sm btn-secondary"
-                onClick={() => setSuccessData(null)}
-              >
-                Inspect Another Sample
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div
-          className="card"
-          style={{ maxWidth: "720px", margin: "0 auto" }}
-        >
-          <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 className="card-title">Inspection Sample</h2>
-
-            <span className="badge badge-neutral">
-              Max 5 MB • JPEG / PNG
+              Decision: {successData.inspection?.quality_decision || "Accept"}
             </span>
           </div>
 
-          <div className="card-body">
-            <form onSubmit={handleUpload}>
-              {/* Automated AI Mode Banner / Toggle */}
-              <div
-                style={{
-                  padding: "0.75rem 1rem",
-                  background: autoClassify ? "rgba(59, 130, 246, 0.08)" : "var(--surface)",
-                  borderRadius: "8px",
-                  border: `1px solid ${autoClassify ? "var(--primary)" : "var(--border)"}`,
-                  marginBottom: "1.25rem",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ fontSize: "1.2rem" }}>⚡</span>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
-                        {autoClassify ? "Automatic AI Classification Active" : "Manual Specification Mode"}
-                      </div>
-                      <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                        {autoClassify
-                          ? "VisionInspect AI will automatically classify product category (15 classes) and defect type."
-                          : "Manually select product category and defect type below."}
-                      </div>
-                    </div>
-                  </div>
+          {/* Quick Metrics Grid */}
+          <div className="result-metrics-row">
+            <div className="result-metric-box">
+              <span className="result-metric-label">Predicted Category</span>
+              <span className="result-metric-val capitalize">
+                {successData.inspection?.predicted_category || successData.inspection?.category || "—"}
+              </span>
+            </div>
 
-                  <button
-                    type="button"
-                    className="btn btn-xs btn-secondary"
-                    onClick={() => setAutoClassify(!autoClassify)}
-                    disabled={uploading}
-                    style={{ whiteSpace: "nowrap", marginLeft: "0.5rem" }}
-                  >
-                    {autoClassify ? "Switch to Manual" : "Switch to Auto AI"}
-                  </button>
-                </div>
-              </div>
+            <div className="result-metric-box">
+              <span className="result-metric-label">Defect Classification</span>
+              <span className="result-metric-val capitalize">
+                {successData.inspection?.resolved_defect_status ||
+                  successData.inspection?.predicted_defect_type ||
+                  successData.inspection?.defect_type ||
+                  "Normal"}
+              </span>
+            </div>
 
-              {/* Product Category & Defect Type Dropdowns (Shown in manual mode or collapsed) */}
-              {!autoClassify && (
-                <div style={{ padding: "1rem", background: "var(--surface)", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "1.25rem" }}>
-                  <div className="form-group">
-                    <label
-                      className="form-label"
-                      htmlFor="category"
-                    >
-                      Product Category *
-                    </label>
+            <div className="result-metric-box">
+              <span className="result-metric-label">Confidence</span>
+              <span className="result-metric-val">
+                {successData.inspection?.classification_confidence != null
+                  ? `${Number(successData.inspection.classification_confidence).toFixed(1)}%`
+                  : "—"}
+              </span>
+            </div>
 
-                    <select
-                      id="category"
-                      className="form-input"
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      disabled={uploading}
-                    >
-                      <option value="">
-                        Select product category
-                      </option>
+            <div className="result-metric-box">
+              <span className="result-metric-label">Severity Level</span>
+              <span className="result-metric-val">
+                {successData.inspection?.severity_level || "Low"}
+              </span>
+            </div>
+          </div>
 
-                      {CATEGORIES.map((item) => (
-                        <option key={item} value={item}>
-                          {item.replace("_", " ").replace(/\b\w/g, (c) =>
-                            c.toUpperCase()
-                          )}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+          <div className="result-banner-actions">
+            <Link to={`/images/${successData.id}`} className="btn btn-primary btn-sm">
+              <span>View Full Inspection #{successData.id}</span>
+              <ExternalLinkIcon size={12} />
+            </Link>
 
-                  <div
-                    className="form-group"
-                    style={{ marginTop: "1rem" }}
-                  >
-                    <label
-                      className="form-label"
-                      htmlFor="defectType"
-                    >
-                      Defect Type *
-                    </label>
-
-                    <select
-                      id="defectType"
-                      className="form-input"
-                      value={defectType}
-                      onChange={(e) => setDefectType(e.target.value)}
-                      disabled={uploading}
-                    >
-                      <option value="">
-                        Select defect type
-                      </option>
-
-                      {DEFECT_TYPES.map((item) => (
-                        <option key={item} value={item}>
-                          {item.replace("_", " ").replace(/\b\w/g, (c) =>
-                            c.toUpperCase()
-                          )}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* Image Upload Dropzone */}
-              <div style={{ marginTop: autoClassify ? "0" : "1rem" }}>
-                <div
-                  className={`dropzone ${isDragOver ? "dragover" : ""
-                    }`}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() =>
-                    document
-                      .getElementById("file-input")
-                      ?.click()
-                  }
-                  style={{ cursor: uploading ? "not-allowed" : "pointer" }}
-                >
-                  <input
-                    id="file-input"
-                    type="file"
-                    accept="image/jpeg,image/png"
-                    onChange={(e) =>
-                      handleFileSelect(e.target.files[0])
-                    }
-                    style={{ display: "none" }}
-                    disabled={uploading}
-                  />
-
-                  <div className="dropzone-icon">📷</div>
-
-                  <div className="dropzone-title">
-                    {file
-                      ? file.name
-                      : "Drag and drop sensor frame, or browse"}
-                  </div>
-
-                  <div className="dropzone-hint">
-                    Supports JPEG and PNG manufacturing frames up to 5 MB
-                  </div>
-                </div>
-              </div>
-
-              {/* Selected File Preview */}
-              {file && (
-                <div
-                  className="preview-container"
-                  style={{ marginTop: "1rem" }}
-                >
-                  {previewUrl && (
-                    <img
-                      src={previewUrl}
-                      alt="Preview"
-                      className="preview-image"
-                    />
-                  )}
-
-                  <div className="preview-meta">
-                    <div className="preview-filename">
-                      {file.name}
-                    </div>
-
-                    <div className="preview-filesize">
-                      {(file.size / 1024).toFixed(1)} KB •{" "}
-                      {file.type}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFile(null);
-                      setPreviewUrl(null);
-                    }}
-                    disabled={uploading}
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
-
-              {/* Progressive Inspection Status Indicator */}
-              {uploading && (
-                <div
-                  style={{
-                    margin: "1.25rem 0",
-                    padding: "1rem",
-                    background: "rgba(59, 130, 246, 0.05)",
-                    borderRadius: "8px",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", fontWeight: 600 }}>
-                    <span className="spinner" style={{ width: "16px", height: "16px" }} />
-                    <span>AI Multi-Stage Inspection in Progress...</span>
-                  </div>
-
-                  <div style={{ fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    <div style={{ color: inspectionStep >= 1 ? "var(--text)" : "var(--text-muted)" }}>
-                      {inspectionStep > 1 ? "✓" : inspectionStep === 1 ? "●" : "○"} 1. Uploading sensor frame to plant repository...
-                    </div>
-                    <div style={{ color: inspectionStep >= 2 ? "var(--text)" : "var(--text-muted)" }}>
-                      {inspectionStep > 2 ? "✓" : inspectionStep === 2 ? "●" : "○"} 2. Classifying product category (ResNet18 15-class classifier)...
-                    </div>
-                    <div style={{ color: inspectionStep >= 3 ? "var(--text)" : "var(--text-muted)" }}>
-                      {inspectionStep > 3 ? "✓" : inspectionStep === 3 ? "●" : "○"} 3. Evaluating defect type & ResNet18 Layer3 anomaly score...
-                    </div>
-                    <div style={{ color: inspectionStep >= 4 ? "var(--text)" : "var(--text-muted)" }}>
-                      {inspectionStep > 4 ? "✓" : inspectionStep === 4 ? "●" : "○"} 4. Running U-Net segmentation & severity scoring engine...
-                    </div>
-                    <div style={{ color: inspectionStep >= 5 ? "var(--text)" : "var(--text-muted)" }}>
-                      {inspectionStep >= 5 ? "✓" : "○"} 5. Generating visual defect overlay & quality decision...
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Submit Button */}
-              <div
-                style={{
-                  marginTop: "1.5rem",
-                  display: "flex",
-                  justifyContent: "flex-end",
-                }}
-              >
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-lg"
-                  disabled={
-                    !file ||
-                    (!autoClassify && (!category || !defectType)) ||
-                    uploading
-                  }
-                >
-                  {uploading ? (
-                    <>
-                      <span
-                        className="spinner"
-                        style={{
-                          width: "16px",
-                          height: "16px",
-                        }}
-                      />
-                      <span>Running Inspection...</span>
-                    </>
-                  ) : autoClassify ? (
-                    "Upload & Auto-Inspect"
-                  ) : (
-                    "Upload & Run Inspection"
-                  )}
-                </button>
-              </div>
-            </form>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setSuccessData(null)}
+            >
+              Inspect Another Sample
+            </button>
           </div>
         </div>
-      </main>
+      )}
+
+      {/* Main Inspection Workflow Card */}
+      <div className="clean-workflow-card">
+        <form onSubmit={handleUpload}>
+          {/* Workflow Stage Visualizer */}
+          <div className="workflow-steps-indicator" aria-label="Inspection Workflow Steps">
+            <div className={`step-node ${uploading && inspectionStep >= 1 ? "active" : successData ? "completed" : "active"}`}>
+              <span className="step-num">{successData ? "✓" : "1"}</span>
+              <span className="step-name">Upload</span>
+            </div>
+            <div className="step-line" />
+            <div className={`step-node ${uploading && inspectionStep >= 2 ? "active" : successData ? "completed" : ""}`}>
+              <span className="step-num">{successData ? "✓" : "2"}</span>
+              <span className="step-name">Classify</span>
+            </div>
+            <div className="step-line" />
+            <div className={`step-node ${uploading && inspectionStep >= 3 ? "active" : successData ? "completed" : ""}`}>
+              <span className="step-num">{successData ? "✓" : "3"}</span>
+              <span className="step-name">Detect</span>
+            </div>
+            <div className="step-line" />
+            <div className={`step-node ${uploading && inspectionStep >= 4 ? "active" : successData ? "completed" : ""}`}>
+              <span className="step-num">{successData ? "✓" : "4"}</span>
+              <span className="step-name">Segment</span>
+            </div>
+            <div className="step-line" />
+            <div className={`step-node ${successData ? "completed" : ""}`}>
+              <span className="step-num">{successData ? "✓" : "5"}</span>
+              <span className="step-name">Verdict</span>
+            </div>
+          </div>
+
+          {/* Mode Switcher */}
+          <div className="classification-mode-box">
+            <div className="mode-info">
+              <span className="mode-title">
+                {autoClassify ? "Automatic AI Classification Active" : "Manual Specification Mode"}
+              </span>
+              <p className="mode-desc">
+                {autoClassify
+                  ? "ResNet18 automated multi-class inference identifies product category (15 classes) and defect type."
+                  : "Manual override active. Specify product category and defect type below."}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setAutoClassify(!autoClassify)}
+              disabled={uploading}
+            >
+              {autoClassify ? "Switch to Manual" : "Switch to Auto AI"}
+            </button>
+          </div>
+
+          {/* Manual dropdowns if active */}
+          {!autoClassify && (
+            <div className="manual-spec-grid">
+              <div className="form-group">
+                <label className="form-label" htmlFor="category">Product Category *</label>
+                <select
+                  id="category"
+                  className="form-input"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  disabled={uploading}
+                >
+                  <option value="">Select product category</option>
+                  {CATEGORIES.map((item) => (
+                    <option key={item} value={item}>
+                      {item.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="defectType">Defect Type *</label>
+                <select
+                  id="defectType"
+                  className="form-input"
+                  value={defectType}
+                  onChange={(e) => setDefectType(e.target.value)}
+                  disabled={uploading}
+                >
+                  <option value="">Select defect type</option>
+                  {DEFECT_TYPES.map((item) => (
+                    <option key={item} value={item}>
+                      {item.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Drag & Drop Zone */}
+          <div
+            className={`modern-dropzone ${isDragOver ? "dragover" : ""}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => document.getElementById("specimen-file-input")?.click()}
+          >
+            <input
+              id="specimen-file-input"
+              type="file"
+              accept="image/jpeg,image/png"
+              onChange={(e) => handleFileSelect(e.target.files[0])}
+              style={{ display: "none" }}
+              disabled={uploading}
+            />
+
+            <div className="dropzone-icon-circle">
+              <CameraIcon size={24} />
+            </div>
+
+            <div className="dropzone-text-group">
+              <span className="dropzone-main-label">
+                {file ? file.name : "Drop specimen sensor frame here, or browse"}
+              </span>
+              <span className="dropzone-hint-label">
+                Standard optical inspection frames (JPEG, PNG up to 5 MB)
+              </span>
+            </div>
+          </div>
+
+          {/* File Selected Preview */}
+          {file && (
+            <div className="selected-file-strip">
+              {previewUrl && <img src={previewUrl} alt="Preview" className="preview-mini-thumb" />}
+              <div className="file-info-col">
+                <span className="file-name-text">{file.name}</span>
+                <span className="file-meta-text">
+                  {(file.size / 1024).toFixed(1)} KB • {file.type}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-remove-file"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFile(null);
+                  setPreviewUrl(null);
+                }}
+                disabled={uploading}
+              >
+                Remove
+              </button>
+            </div>
+          )}
+
+          {/* Active Processing Step Checklist */}
+          {uploading && (
+            <div className="pipeline-live-checklist">
+              <div className="pipeline-checklist-header">
+                <div className="app-loading-spinner" style={{ width: "16px", height: "16px" }} />
+                <span>AI Manufacturing Inspection Running...</span>
+              </div>
+
+              <div className="pipeline-steps-list">
+                <div className={`pipeline-step-item ${inspectionStep >= 1 ? "step-active" : ""}`}>
+                  <span>{inspectionStep > 1 ? "✓" : inspectionStep === 1 ? "●" : "○"}</span>
+                  <span>1. Ingesting raw sensor frame to plant repository</span>
+                </div>
+                <div className={`pipeline-step-item ${inspectionStep >= 2 ? "step-active" : ""}`}>
+                  <span>{inspectionStep > 2 ? "✓" : inspectionStep === 2 ? "●" : "○"}</span>
+                  <span>2. ResNet18 Product Category Classifier inference (15 classes)</span>
+                </div>
+                <div className={`pipeline-step-item ${inspectionStep >= 3 ? "step-active" : ""}`}>
+                  <span>{inspectionStep > 3 ? "✓" : inspectionStep === 3 ? "●" : "○"}</span>
+                  <span>3. Defect classification & ResNet18 Layer3 anomaly scoring</span>
+                </div>
+                <div className={`pipeline-step-item ${inspectionStep >= 4 ? "step-active" : ""}`}>
+                  <span>{inspectionStep > 4 ? "✓" : inspectionStep === 4 ? "●" : "○"}</span>
+                  <span>4. U-Net segmentation & YOLO11n gated object detection</span>
+                </div>
+                <div className={`pipeline-step-item ${inspectionStep >= 5 ? "step-active" : ""}`}>
+                  <span>{inspectionStep >= 5 ? "✓" : "○"}</span>
+                  <span>5. Automated decision fusion & quality verdict synthesis</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Submit Action */}
+          <div className="form-submit-row">
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg"
+              disabled={!file || uploading || (!autoClassify && (!category || !defectType))}
+            >
+              <UploadIcon size={18} />
+              <span>{uploading ? "Analyzing Specimen..." : "Upload & Run AI Inspection"}</span>
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

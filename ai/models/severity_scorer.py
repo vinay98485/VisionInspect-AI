@@ -43,6 +43,6 @@ class SeverityScorer:
             return "Accept"
 
         severity_level = self.get_severity_level(severity_score)
-        if severity_level in {"Critical", "High"}:
+        if severity_level in {"Medium", "High", "Critical"}:
             return "Reject"
         return "Accept"

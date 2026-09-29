@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
-import Navbar from "../components/Navbar";
+import { useNavigate, useParams, Link, useOutletContext } from "react-router-dom";
 import {
-  getCurrentUser,
   getImage,
   getImageBlobUrl,
   getInspectionOverlayBlobUrl,
@@ -12,17 +10,22 @@ import {
   NotFoundError,
   ApiError,
 } from "../services/api";
+import {
+  AlertIcon,
+  CheckIcon,
+  CameraIcon,
+  LayersIcon,
+} from "../components/Icons";
 
 function ImageDetails() {
   const { imageId } = useParams();
   const navigate = useNavigate();
+  const { user, setHeaderConfig } = useOutletContext() || {};
 
-  const [user, setUser] = useState(null);
   const [image, setImage] = useState(null);
-
   const [imageUrl, setImageUrl] = useState(null);
-  const [inspectionOverlayUrl, setInspectionOverlayUrl] =
-    useState(null);
+  const [inspectionOverlayUrl, setInspectionOverlayUrl] = useState(null);
+  const [activeImageView, setActiveImageView] = useState("overlay"); // 'overlay' | 'raw'
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -32,84 +35,85 @@ function ImageDetails() {
   const [reviewing, setReviewing] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState(null);
 
+  // Progressive disclosure for technical engineering scores
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+
+  const isSupervisor = user?.role_id === 2;
+
+  useEffect(() => {
+    setHeaderConfig?.({
+      title: image ? `Inspection Record #${image.id}` : `Inspection #${imageId}`,
+      subtitle: image?.original_filename || "Specimen visual defect analysis",
+      actions: (
+        <Link
+          to={isSupervisor ? "/supervisor/reviews" : "/inspections"}
+          className="btn-header-secondary"
+        >
+          <span>← Back to {isSupervisor ? "Queue" : "Inspections"}</span>
+        </Link>
+      ),
+    });
+  }, [setHeaderConfig, image, imageId, isSupervisor]);
+
   useEffect(() => {
     let active = true;
-
     let loadedImageUrl = null;
     let loadedOverlayUrl = null;
 
-    const fetchImageRecord = async () => {
+    const fetchRecord = async () => {
       setLoading(true);
       setError(null);
       setErrorType(null);
 
       try {
-        const userData = await getCurrentUser();
-
-        if (!active) return;
-
-        setUser(userData);
-
         const data = await getImage(imageId);
-
         if (!active) return;
 
         setImage(data);
         setSupervisorNotes(data.supervisor_notes || "");
 
-        // Load original image
+        // Load raw frame
         loadedImageUrl = await getImageBlobUrl(imageId);
-
         if (!active) {
           URL.revokeObjectURL(loadedImageUrl);
           return;
         }
-
         setImageUrl(loadedImageUrl);
 
-        // Load AI defect overlay if inspection has produced one
+        // Load AI overlay if available
         if (data.inspection_overlay_available) {
           try {
-            loadedOverlayUrl =
-              await getInspectionOverlayBlobUrl(imageId);
-
-            if (!active) {
+            loadedOverlayUrl = await getInspectionOverlayBlobUrl(imageId);
+            if (active) {
+              setInspectionOverlayUrl(loadedOverlayUrl);
+              setActiveImageView("overlay");
+            } else {
               URL.revokeObjectURL(loadedOverlayUrl);
-              return;
             }
-
-            setInspectionOverlayUrl(
-              loadedOverlayUrl
-            );
           } catch {
             if (active) {
               setInspectionOverlayUrl(null);
+              setActiveImageView("raw");
             }
           }
         } else {
-          setInspectionOverlayUrl(null);
+          setActiveImageView("raw");
         }
       } catch (err) {
         if (!active) return;
-
         if (err instanceof AuthError) {
-          setError(err.message);
-          setErrorType("auth");
+          navigate("/login");
         } else if (err instanceof ForbiddenError) {
           setError(err.message);
           setErrorType("forbidden");
         } else if (err instanceof NotFoundError) {
-          setError(
-            `Inspection record #${imageId} was not found in the plant database.`
-          );
+          setError(`Inspection record #${imageId} was not found in the plant database.`);
           setErrorType("notfound");
         } else if (err instanceof ApiError) {
           setError(err.message);
           setErrorType("server");
         } else {
-          setError(
-            "Failed to fetch inspection details from plant server."
-          );
+          setError("Failed to fetch inspection details from server.");
           setErrorType("server");
         }
       } finally {
@@ -119,29 +123,22 @@ function ImageDetails() {
       }
     };
 
-    fetchImageRecord();
+    fetchRecord();
 
     return () => {
       active = false;
-
-      if (loadedImageUrl) {
-        URL.revokeObjectURL(loadedImageUrl);
-      }
-
-      if (loadedOverlayUrl) {
-        URL.revokeObjectURL(loadedOverlayUrl);
-      }
+      if (loadedImageUrl) URL.revokeObjectURL(loadedImageUrl);
+      if (loadedOverlayUrl) URL.revokeObjectURL(loadedOverlayUrl);
     };
-  }, [imageId]);
+  }, [imageId, navigate]);
 
   const handleSupervisorReview = async (decision) => {
-    if (
-      decision === "rejected" &&
-      !supervisorNotes.trim()
-    ) {
+    const trimmedNotes = supervisorNotes.trim();
+
+    if (decision === "rejected" && !trimmedNotes) {
       setReviewFeedback({
         type: "error",
-        text: "Supervisor audit note is required when rejecting an inspection batch.",
+        text: "Rejection requires supervisor audit notes explaining the defect condition.",
       });
       return;
     }
@@ -150,877 +147,394 @@ function ImageDetails() {
     setReviewFeedback(null);
 
     try {
-      const updated = await reviewImage(
-        imageId,
-        decision,
-        supervisorNotes.trim()
-      );
-
+      const updated = await reviewImage(imageId, decision, trimmedNotes);
       setImage(updated);
-
       setReviewFeedback({
         type: "success",
-        text: `Inspection batch #${imageId} successfully marked as ${decision.toUpperCase()}.`,
+        text: `Inspection #${imageId} officially marked as ${decision.toUpperCase()}.`,
       });
     } catch (err) {
-      setReviewFeedback({
-        type: "error",
-        text:
-          err.message ||
-          "Failed to submit review.",
-      });
+      if (err instanceof AuthError) {
+        navigate("/login");
+      } else {
+        setReviewFeedback({
+          type: "error",
+          text: err.message || "Failed to submit review.",
+        });
+      }
     } finally {
       setReviewing(false);
     }
   };
 
-  const isSupervisor = user?.role_id === 2;
-
-  const returnDashboardPath = isSupervisor
-    ? "/supervisor/dashboard"
-    : "/dashboard";
-
   if (loading) {
     return (
-      <div className="app-shell">
-        <Navbar />
-
-        <main className="main-content">
-          <div className="state-container">
-            <div className="spinner" />
-
-            <div className="state-desc">
-              Loading high-resolution inspection record #
-              {imageId}...
-            </div>
-          </div>
-        </main>
+      <div className="section-loading-container">
+        <div className="app-loading-spinner" />
+        <p className="section-loading-text">Loading inspection telemetry #{imageId}...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="app-shell">
-        <Navbar />
-
-        <main className="main-content">
-          <div
-            className="card"
-            style={{
-              maxWidth: "600px",
-              margin: "3rem auto",
-            }}
+      <div className="notice-card error-notice">
+        <div className="notice-icon"><AlertIcon size={24} /></div>
+        <div className="notice-content">
+          <h3 className="notice-title">{errorType === "notfound" ? "Record Not Found" : "Inspection Error"}</h3>
+          <p className="notice-desc">{error}</p>
+          <Link
+            to={isSupervisor ? "/supervisor/reviews" : "/inspections"}
+            className="btn btn-secondary btn-sm"
+            style={{ marginTop: "1rem" }}
           >
-            <div className="card-body">
-              <div
-                className="state-container"
-                style={{
-                  padding: "1.5rem",
-                }}
-              >
-                <div
-                  className="state-icon"
-                  style={{
-                    color: "var(--danger)",
-                  }}
-                >
-                  ⚠️
-                </div>
-
-                <h2 className="state-title">
-                  {errorType === "auth"
-                    ? "Session Expired"
-                    : errorType === "notfound"
-                      ? "Inspection Record Not Found"
-                      : "Console Notice"}
-                </h2>
-
-                <p className="state-desc">
-                  {error}
-                </p>
-
-                <div
-                  style={{
-                    marginTop: "1rem",
-                    display: "flex",
-                    gap: "0.75rem",
-                  }}
-                >
-                  {errorType === "auth" ? (
-                    <button
-                      className="btn btn-primary"
-                      onClick={() =>
-                        navigate("/login")
-                      }
-                    >
-                      Log in again
-                    </button>
-                  ) : (
-                    <Link
-                      to={returnDashboardPath}
-                      className="btn btn-primary"
-                    >
-                      Return to Dashboard
-                    </Link>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
+            Return to Inspection List
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const isApproved =
-    image.supervisor_decision === "approved";
-
-  const isRejected =
-    image.supervisor_decision === "rejected";
-
-  const hasInspection =
-    image.severity_score !== null &&
-    image.severity_score !== undefined;
+  const hasInspection = image?.severity_score !== null && image?.severity_score !== undefined;
+  const isApproved = image?.supervisor_decision === "approved";
+  const isRejected = image?.supervisor_decision === "rejected";
 
   return (
-    <div className="app-shell">
-      <Navbar />
-
-      <main className="main-content">
-        {/* Header */}
-        <div className="page-header">
-          <div className="page-title-group">
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                marginBottom: "0.25rem",
-              }}
-            >
-              <Link
-                to={returnDashboardPath}
-                style={{
-                  fontSize: "0.85rem",
-                  color: "var(--text-muted)",
-                }}
-              >
-                ← Dashboard
-              </Link>
-
-              <span
-                style={{
-                  color: "var(--border-default)",
-                }}
-              >
-                /
-              </span>
-
-              <span
-                style={{
-                  fontSize: "0.85rem",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                Inspection #{image.id}
-              </span>
-            </div>
-
-            <h1 className="page-title">
-              {image.original_filename}
-
-              {isApproved ? (
-                <span className="badge badge-approved">
-                  <span className="badge-dot" /> Approved
-                </span>
-              ) : isRejected ? (
-                <span className="badge badge-rejected">
-                  <span className="badge-dot" /> Rejected
-                </span>
-              ) : (
-                <span className="badge badge-pending">
-                  <span className="badge-dot" /> Pending Review
-                </span>
-              )}
-            </h1>
-
-            <p className="page-subtitle">
-              Acquisition Timestamp:{" "}
-              {new Date(
-                image.uploaded_at
-              ).toLocaleString()}
-            </p>
-          </div>
-
-          <div className="page-actions">
-            <Link
-              to={returnDashboardPath}
-              className="btn btn-secondary"
-            >
-              Back to Dashboard
-            </Link>
-          </div>
+    <div className="specimen-detail-wrapper">
+      {/* Review Feedback Alert */}
+      {reviewFeedback && (
+        <div className={`alert-banner ${reviewFeedback.type === "success" ? "alert-success" : "alert-error"}`} style={{ marginBottom: "1.25rem" }}>
+          {reviewFeedback.type === "success" ? <CheckIcon size={16} /> : <AlertIcon size={16} />}
+          <span>{reviewFeedback.text}</span>
+          <button type="button" className="alert-dismiss-btn" onClick={() => setReviewFeedback(null)}>
+            ×
+          </button>
         </div>
+      )}
 
-        {/* Review feedback */}
-        {reviewFeedback && (
-          <div
-            className={`alert ${reviewFeedback.type === "success"
-              ? "alert-success"
-              : "alert-error"
-              }`}
-          >
-            <span>{reviewFeedback.text}</span>
-          </div>
-        )}
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              inspectionOverlayUrl
-                ? "1fr 1fr"
-                : "1fr",
-            gap: "1.5rem",
-            marginBottom: "1.5rem",
-          }}
-        >
-          {/* Original Image */}
-          <div className="card">
-            <div className="card-header">
-              <h2 className="card-title">
-                High-Resolution Visual Inspection Feed
-              </h2>
-
-              <span className="badge badge-neutral">
-                Raw Sensor Frame
-              </span>
+      {/* ==============================================================
+          HERO SECTION: FOCUSED IMAGE DISPLAY + KEY VERDICT CARD
+          ============================================================== */}
+      <section className="specimen-hero-grid">
+        {/* Left: Focused Image Viewer */}
+        <div className="hero-viewer-card">
+          <div className="viewer-controls-bar">
+            <div className="viewer-title-group">
+              <span className="viewer-title">{image.original_filename}</span>
+              <span className="viewer-sub">Record ID #{image.id}</span>
             </div>
 
-            <div
-              className="card-body"
-              style={{ padding: "1rem" }}
-            >
-              <div className="image-viewer-frame">
-                {imageUrl ? (
-                  <img
-                    src={imageUrl}
-                    alt={image.original_filename}
-                  />
-                ) : (
-                  <div className="state-container">
-                    <div className="spinner" />
-
-                    <p className="state-desc">
-                      Loading image...
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* AI Defect Highlight */}
-          {inspectionOverlayUrl && (
-            <div className="card">
-              <div className="card-header">
-                <h2 className="card-title">
-                  AI Defect Highlight
-                </h2>
-
-                {(image.resolved_defect_status === "normal" || image.defect_type === "normal" || image.quality_decision === "Accept") ? (
-                  <span className="badge badge-approved">
-                    No Defect Detected
-                  </span>
-                ) : (
-                  <span className="badge badge-rejected">
-                    Predicted Defect Region
-                  </span>
-                )}
-              </div>
-
-              <div
-                className="card-body"
-                style={{ padding: "1rem" }}
-              >
-                <div className="image-viewer-frame">
-                  <img
-                    src={inspectionOverlayUrl}
-                    alt="AI predicted defect region"
-                  />
-                </div>
-
-                <div
-                  style={{
-                    marginTop: "0.75rem",
-                    fontSize: "0.8rem",
-                    color: "var(--text-muted)",
-                    textAlign: "center",
-                  }}
+            {/* View Switcher: Overlay vs Raw */}
+            {inspectionOverlayUrl && (
+              <div className="segment-control subtle-segment" role="tablist">
+                <button
+                  type="button"
+                  className={`segment-btn ${activeImageView === "overlay" ? "active" : ""}`}
+                  onClick={() => setActiveImageView("overlay")}
                 >
-                  {image.defect_type === "normal" || image.quality_decision === "Accept"
-                    ? "AI analysis confirmed no defect detected in this frame."
-                    : "Red region indicates the area predicted by the AI segmentation model as defective."}
-                </div>
+                  <LayersIcon size={14} />
+                  <span>AI Overlay</span>
+                </button>
+                <button
+                  type="button"
+                  className={`segment-btn ${activeImageView === "raw" ? "active" : ""}`}
+                  onClick={() => setActiveImageView("raw")}
+                >
+                  <CameraIcon size={14} />
+                  <span>Raw Frame</span>
+                </button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+
+          <div className="viewer-canvas-frame">
+            {activeImageView === "overlay" && inspectionOverlayUrl ? (
+              <img
+                src={inspectionOverlayUrl}
+                alt="AI Defect Segmentation Overlay"
+                className="viewer-main-img"
+              />
+            ) : imageUrl ? (
+              <img
+                src={imageUrl}
+                alt="Raw optical sensor frame"
+                className="viewer-main-img"
+              />
+            ) : (
+              <div className="viewer-placeholder">
+                <CameraIcon size={32} />
+                <span>Buffering visual frame...</span>
+              </div>
+            )}
+          </div>
+
+          <div className="viewer-footer-caption">
+            {activeImageView === "overlay" && inspectionOverlayUrl ? (
+              <span>
+                <strong>Red contours:</strong> U-Net defect boundary • <strong>Green bounding boxes:</strong> YOLO11n object detections ({image.detected_objects_count ?? 0} found)
+              </span>
+            ) : (
+              <span>Raw optical frame as acquired from visual sensor cell.</span>
+            )}
+          </div>
         </div>
 
-        {/* Main workspace */}
-        <div className="inspection-grid">
-          {/* RIGHT COLUMN */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "1.5rem",
-            }}
-          >
-            {/* Image Information */}
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">
-                  Image Information
-                </h3>
-              </div>
+        {/* Right: Key Verdict Card */}
+        <div className="hero-verdict-card">
+          <div className="verdict-card-top">
+            <span className="verdict-label-small">Manufacturing Quality Verdict</span>
+            <div className="verdict-badge-large">
+              <span
+                className={`status-pill ${
+                  image.quality_decision === "Reject" ? "status-danger" : "status-healthy"
+                }`}
+                style={{ fontSize: "1.1rem", padding: "0.5rem 1rem", fontWeight: 700 }}
+              >
+                {image.quality_decision ? image.quality_decision.toUpperCase() : "PENDING"}
+              </span>
+            </div>
+          </div>
 
-              <div className="card-body">
-                <table className="meta-table">
-                  <tbody>
-                    <tr>
-                      <th>Original Filename</th>
-                      <td>
-                        {image.original_filename}
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <th>Uploaded By</th>
-                      <td>
-                        {image.uploaded_by?.name ||
-                          "Unknown"}
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <th>Upload Date</th>
-                      <td>
-                        {new Date(
-                          image.uploaded_at
-                        ).toLocaleDateString()}
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <th>Upload Time</th>
-                      <td>
-                        {new Date(
-                          image.uploaded_at
-                        ).toLocaleTimeString()}
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <th>Inspection Status</th>
-                      <td>
-                        {image.inspection_status ||
-                          "pending"}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+          <div className="verdict-stats-list">
+            <div className="verdict-stat-row">
+              <span className="verdict-stat-title">Defect Severity</span>
+              <span className="verdict-stat-value">
+                <strong className={image.severity_level === "Critical" ? "danger-color" : ""}>
+                  {image.severity_level || "Normal"}
+                </strong>{" "}
+                <span className="verdict-stat-sub">
+                  ({hasInspection ? Number(image.severity_score).toFixed(2) : "—"})
+                </span>
+              </span>
             </div>
 
-            {/* AI Inspection */}
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">
-                  AI Defect Inspection
-                </h3>
-
-                {hasInspection ? (
-                  <span className="badge badge-approved">
-                    Inspection Complete
-                  </span>
-                ) : (
-                  <span className="badge badge-neutral">
-                    Pending Inspection
-                  </span>
-                )}
-              </div>
-
-              <div className="card-body">
-                {!hasInspection ? (
-                  <div
-                    style={{
-                      padding: "1rem",
-                      textAlign: "center",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    AI inspection has not been
-                    completed for this image.
-                  </div>
-                ) : (
-                  <table className="meta-table">
-                    <tbody>
-                      <tr>
-                        <th>Product Category</th>
-                        <td>
-                          <span style={{ textTransform: "capitalize", fontWeight: 600 }}>
-                            {image.predicted_category || image.category || "—"}
-                          </span>
-                          {image.predicted_category && (
-                            <span className="badge badge-neutral" style={{ marginLeft: "0.5rem", fontSize: "0.7rem" }}>
-                              ResNet18 AI
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>AI Defect Type</th>
-                        <td>
-                          <span style={{ textTransform: "capitalize", fontWeight: 600 }}>
-                            {image.predicted_defect_type || "—"}
-                          </span>
-                          {image.predicted_defect_type && (
-                            <span className="badge badge-neutral" style={{ marginLeft: "0.5rem", fontSize: "0.7rem" }}>
-                              Hierarchical ML
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Classification Confidence</th>
-                        <td>
-                          {image.classification_confidence != null ? (
-                            <strong>
-                              {Number(image.classification_confidence).toFixed(1)}%
-                            </strong>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Resolved Defect Status</th>
-                        <td>
-                          <span
-                            className={`badge ${
-                              (image.resolved_defect_status === "normal" || image.defect_type === "normal" || image.quality_decision === "Accept")
-                                ? "badge-approved"
-                                : "badge-rejected"
-                            }`}
-                            style={{ textTransform: "capitalize" }}
-                          >
-                            {image.resolved_defect_status || image.defect_type || "—"}
-                          </span>
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Anomaly Score</th>
-                        <td>
-                          {Number(
-                            image.anomaly_score
-                          ).toFixed(4)}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Detection Confidence</th>
-                        <td>
-                          {Number(
-                            image.confidence_score
-                          ).toFixed(2)}
-                          %
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Predicted Defect Area</th>
-                        <td>
-                          {Number(
-                            image.predicted_area_percent
-                          ).toFixed(2)}
-                          %
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Size Score</th>
-                        <td>
-                          {Number(
-                            image.size_score
-                          ).toFixed(2)}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Location Score</th>
-                        <td>
-                          {Number(
-                            image.location_score
-                          ).toFixed(2)}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Defect Type Score</th>
-                        <td>
-                          {Number(
-                            image.defect_type_score
-                          ).toFixed(2)}
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Severity Score</th>
-                        <td>
-                          <strong>
-                            {Number(
-                              image.severity_score
-                            ).toFixed(2)}
-                          </strong>
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Severity Level</th>
-                        <td>
-                          <strong>
-                            {image.severity_level ||
-                              "—"}
-                          </strong>
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <th>Quality Decision</th>
-                        <td>
-                          <strong
-                            style={{
-                              color:
-                                image.quality_decision ===
-                                  "Reject"
-                                  ? "var(--danger)"
-                                  : "var(--success)",
-                            }}
-                          >
-                            {image.quality_decision ||
-                              "—"}
-                          </strong>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                )}
-              </div>
+            <div className="verdict-stat-row">
+              <span className="verdict-stat-title">AI Confidence</span>
+              <span className="verdict-stat-value">
+                {image.confidence_score
+                  ? `${Number(image.confidence_score).toFixed(1)}%`
+                  : image.classification_confidence
+                  ? `${Number(image.classification_confidence).toFixed(1)}%`
+                  : "—"}
+              </span>
             </div>
 
-            {/* Quality Recommendation */}
-            {hasInspection && image.recommendation && image.recommendation.action !== "PENDING" && (
-              <div className="card">
-                <div className="card-header">
-                  <h3 className="card-title">
-                    Quality Recommendation
-                  </h3>
-                  <span
-                    className={`badge ${
-                      image.recommendation.action === "PASS"
-                        ? "badge-approved"
-                        : image.recommendation.action === "REWORK"
-                        ? "badge-role"
-                        : image.recommendation.action === "CLEAN"
-                        ? "badge-pending"
-                        : "badge-rejected"
-                    }`}
-                    style={{ fontWeight: 600, letterSpacing: "0.05em" }}
-                  >
-                    {image.recommendation.action}
-                  </span>
+            <div className="verdict-stat-row">
+              <span className="verdict-stat-title">Defect Classification</span>
+              <span className="verdict-stat-value capitalize">
+                {image.resolved_defect_status || image.predicted_defect_type || image.defect_type || "Normal"}
+              </span>
+            </div>
+
+            <div className="verdict-stat-row">
+              <span className="verdict-stat-title">Product Category</span>
+              <span className="verdict-stat-value capitalize">
+                {image.predicted_category || image.category || "—"}
+              </span>
+            </div>
+
+            {image.recommendation && image.recommendation.action !== "PENDING" && (
+              <div className="verdict-recommendation-box">
+                <span className="verdict-stat-title">Recommended Action</span>
+                <span className="recommendation-action-tag">
+                  {image.recommendation.action_label || image.recommendation.action}
+                </span>
+                <p className="recommendation-summary-text">
+                  {image.recommendation.rationale}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ==============================================================
+          DETAILED SECTIONS BELOW: DEEP TELEMETRY & SIGN-OFF
+          ============================================================== */}
+      <section className="specimen-secondary-grid">
+        {/* 1. Defect Localization & Metrics */}
+        <div className="clean-section-card">
+          <h3 className="section-heading" style={{ fontSize: "1.05rem" }}>
+            Defect Localization & Anomaly Metrics
+          </h3>
+          <p className="section-subheading">Computer vision spatial measurements & multi-modal detection consensus</p>
+
+          <div className="spec-table-container" style={{ marginTop: "1rem" }}>
+            <table className="meta-spec-table">
+              <tbody>
+                <tr>
+                  <th>Detected Defect Objects</th>
+                  <td>
+                    <strong>{image.detected_objects_count ?? 0}</strong>
+                    {image.detected_objects_count > 0 && (
+                      <span className="status-pill status-neutral" style={{ marginLeft: "0.5rem" }}>
+                        YOLO11n (conf 0.25)
+                      </span>
+                    )}
+                  </td>
+                </tr>
+                <tr>
+                  <th>Predicted Defect Area</th>
+                  <td>
+                    {image.predicted_area_percent != null
+                      ? `${Number(image.predicted_area_percent).toFixed(2)}% of frame`
+                      : "0.00%"}
+                  </td>
+                </tr>
+                <tr>
+                  <th>ResNet18 Anomaly Score</th>
+                  <td>
+                    {image.anomaly_score != null ? Number(image.anomaly_score).toFixed(4) : "—"}
+                  </td>
+                </tr>
+                <tr>
+                  <th>Classification Confidence</th>
+                  <td>
+                    {image.classification_confidence != null
+                      ? `${Number(image.classification_confidence).toFixed(1)}%`
+                      : "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 2. Factory Supervisor Sign-off */}
+        <div className="clean-section-card">
+          <div className="box-header-row">
+            <div>
+              <h3 className="section-heading" style={{ fontSize: "1.05rem" }}>
+                Factory Supervisor Sign-off
+              </h3>
+              <p className="section-subheading">Formal audit review and production sign-off trail</p>
+            </div>
+            <span
+              className={`status-pill ${
+                isApproved ? "status-healthy" : isRejected ? "status-danger" : "status-warning"
+              }`}
+            >
+              {isApproved ? "Approved" : isRejected ? "Rejected" : "Awaiting Review"}
+            </span>
+          </div>
+
+          <div style={{ marginTop: "1rem" }}>
+            {image.reviewed_by ? (
+              <div className="signed-audit-trail">
+                <div className="audit-row">
+                  <span className="audit-lbl">Reviewed By</span>
+                  <span className="audit-val">{image.reviewed_by.name} ({image.reviewed_by.email})</span>
                 </div>
-
-                <div className="card-body">
-                  <div
-                    style={{
-                      padding: "0.75rem 1rem",
-                      borderRadius: "6px",
-                      backgroundColor: "rgba(255, 255, 255, 0.03)",
-                      border: "1px solid var(--border-subtle)",
-                      marginBottom: "1rem",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: "0.75rem",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.05em",
-                        color: "var(--text-muted)",
-                        marginBottom: "0.25rem",
-                      }}
-                    >
-                      Recommended Action
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "1.1rem",
-                        fontWeight: 600,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      {image.recommendation.action_label}
-                    </div>
-                  </div>
-
-                  <table
-                    className="meta-table"
-                    style={{ marginBottom: "0.75rem" }}
-                  >
-                    <tbody>
-                      <tr>
-                        <th style={{ width: "120px" }}>Rationale</th>
-                        <td style={{ color: "var(--text-secondary)" }}>
-                          {image.recommendation.rationale}
-                        </td>
-                      </tr>
-                      <tr>
-                        <th>Guidance</th>
-                        <td
-                          style={{
-                            color: "var(--text-primary)",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {image.recommendation.guidance}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  <p
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "var(--text-muted)",
-                      margin: 0,
-                      fontStyle: "italic",
-                    }}
-                  >
-                    ℹ️ Automated decision support recommendation based on optical inspection telemetry. Does not replace required engineering or supervisor disposition.
+                <div className="audit-row">
+                  <span className="audit-lbl">Sign-off Timestamp</span>
+                  <span className="audit-val">{new Date(image.reviewed_at).toLocaleString()}</span>
+                </div>
+                <div className="audit-notes-box">
+                  <span className="audit-lbl" style={{ display: "block", marginBottom: "0.3rem" }}>
+                    Supervisor Audit Notes:
+                  </span>
+                  <p className="audit-notes-text">
+                    {image.supervisor_notes || "No additional remarks recorded for this inspection."}
                   </p>
                 </div>
               </div>
-            )}
+            ) : isSupervisor ? (
+              <div className="supervisor-action-box">
+                <div className="form-group">
+                  <label className="form-label" htmlFor="audit-notes">
+                    Supervisor Audit Observations {image.quality_decision === "Reject" ? "*" : ""}
+                  </label>
+                  <textarea
+                    id="audit-notes"
+                    className="form-textarea"
+                    rows="3"
+                    placeholder="Enter audit notes (mandatory if overriding or rejecting)..."
+                    value={supervisorNotes}
+                    onChange={(e) => setSupervisorNotes(e.target.value)}
+                    disabled={reviewing}
+                  />
+                </div>
 
-            {/* Supervisor Review */}
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">
-                  Factory Supervisor Sign-off
-                </h3>
-
-                {isApproved ? (
-                  <span className="badge badge-approved">
-                    Approved
-                  </span>
-                ) : isRejected ? (
-                  <span className="badge badge-rejected">
-                    Rejected
-                  </span>
-                ) : (
-                  <span className="badge badge-neutral">
-                    Awaiting Review
-                  </span>
-                )}
-              </div>
-
-              <div className="card-body">
-                <table
-                  className="meta-table"
-                  style={{
-                    marginBottom: "1rem",
-                  }}
-                >
-                  <tbody>
-                    <tr>
-                      <th>Supervisor Decision</th>
-                      <td>
-                        {image.supervisor_decision
-                          ? image.supervisor_decision.toUpperCase()
-                          : "—"}
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <th>Reviewed By</th>
-                      <td>
-                        {image.reviewed_by?.name ||
-                          "—"}
-                      </td>
-                    </tr>
-
-                    <tr>
-                      <th>Review Timestamp</th>
-                      <td>
-                        {image.reviewed_at
-                          ? new Date(
-                            image.reviewed_at
-                          ).toLocaleString()
-                          : "—"}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                {isSupervisor && !image.supervisor_decision ? (
-                  <div
-                    style={{
-                      borderTop:
-                        "1px solid var(--border-subtle)",
-                      paddingTop: "1rem",
-                    }}
+                <div className="action-button-row">
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    onClick={() => handleSupervisorReview("approved")}
+                    disabled={reviewing}
                   >
-                    <div className="form-group">
-                      <label
-                        className="form-label"
-                        htmlFor="auditNotes"
-                      >
-                        Supervisor Audit Notes{" "}
-                        {image.supervisor_decision ===
-                          "rejected" && (
-                            <span
-                              style={{
-                                color:
-                                  "var(--danger)",
-                              }}
-                            >
-                              *
-                            </span>
-                          )}
-                      </label>
-
-                      <textarea
-                        id="auditNotes"
-                        className="form-textarea"
-                        rows="3"
-                        placeholder="Provide QA rationale, defect notes, or acceptance remarks..."
-                        value={supervisorNotes}
-                        onChange={(e) =>
-                          setSupervisorNotes(
-                            e.target.value
-                          )
-                        }
-                        disabled={reviewing}
-                      />
-                    </div>
-
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "0.75rem",
-                        marginTop: "1rem",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className={`btn ${isApproved
-                          ? "btn-secondary"
-                          : "btn-success"
-                          }`}
-                        onClick={() =>
-                          handleSupervisorReview(
-                            "approved"
-                          )
-                        }
-                        disabled={reviewing}
-                        style={{
-                          flex: 1,
-                        }}
-                      >
-                        {reviewing
-                          ? "Processing..."
-                          : isApproved
-                            ? "✓ Approved"
-                            : "Approve Batch"}
-                      </button>
-
-                      <button
-                        type="button"
-                        className={`btn ${isRejected
-                          ? "btn-secondary"
-                          : "btn-danger"
-                          }`}
-                        onClick={() =>
-                          handleSupervisorReview(
-                            "rejected"
-                          )
-                        }
-                        disabled={reviewing}
-                        style={{
-                          flex: 1,
-                        }}
-                      >
-                        {reviewing
-                          ? "Processing..."
-                          : isRejected
-                            ? "✕ Rejected"
-                            : "Reject Batch"}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div
-                      style={{
-                        fontSize: "0.85rem",
-                        fontWeight: 600,
-                        color:
-                          "var(--text-secondary)",
-                        marginBottom:
-                          "0.35rem",
-                      }}
-                    >
-                      Supervisor Audit Notes:
-                    </div>
-
-                    <div
-                      style={{
-                        padding:
-                          "0.75rem 1rem",
-                        background:
-                          "var(--bg-main)",
-                        borderRadius:
-                          "var(--radius-md)",
-                        border:
-                          "1px solid var(--border-subtle)",
-                        fontSize:
-                          "0.875rem",
-                        color:
-                          image.supervisor_notes
-                            ? "var(--text-primary)"
-                            : "var(--text-muted)",
-                        fontStyle:
-                          image.supervisor_notes
-                            ? "normal"
-                            : "italic",
-                      }}
-                    >
-                      {image.supervisor_notes ||
-                        "No notes recorded for this inspection batch."}
-                    </div>
-                  </div>
-                )}
+                    <CheckIcon size={14} />
+                    <span>{reviewing ? "Processing..." : "Approve Batch"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={() => handleSupervisorReview("rejected")}
+                    disabled={reviewing}
+                  >
+                    <span>{reviewing ? "Processing..." : "Reject Batch"}</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="pending-review-notice">
+                <span className="notice-text">
+                  This inspection specimen is currently in the Factory Supervisor queue awaiting formal sign-off.
+                </span>
+              </div>
+            )}
           </div>
         </div>
-      </main>
+      </section>
+
+      {/* ==============================================================
+          PROGRESSIVE DISCLOSURE: TECHNICAL METRICS & DATA PROVENANCE
+          ============================================================== */}
+      <section className="progressive-details-section">
+        <button
+          type="button"
+          className="btn-disclosure-toggle"
+          onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+        >
+          <span>{showTechnicalDetails ? "▼ Hide Technical Pipeline Metrics" : "▶ Show Technical Pipeline Metrics & Data Provenance"}</span>
+        </button>
+
+        {showTechnicalDetails && (
+          <div className="disclosed-technical-content">
+            <div className="technical-grid">
+              <div className="tech-box">
+                <span className="tech-lbl">Size Severity Metric</span>
+                <span className="tech-val">{Number(image.size_score ?? 0).toFixed(3)}</span>
+              </div>
+              <div className="tech-box">
+                <span className="tech-lbl">Location Criticality Metric</span>
+                <span className="tech-val">{Number(image.location_score ?? 0).toFixed(3)}</span>
+              </div>
+              <div className="tech-box">
+                <span className="tech-lbl">Defect Type Severity Metric</span>
+                <span className="tech-val">{Number(image.defect_type_score ?? 0).toFixed(3)}</span>
+              </div>
+              <div className="tech-box">
+                <span className="tech-lbl">Storage Path</span>
+                <span className="tech-val mono" style={{ fontSize: "0.75rem" }}>{image.storage_path || "—"}</span>
+              </div>
+              <div className="tech-box">
+                <span className="tech-lbl">Uploader Name & ID</span>
+                <span className="tech-val">{image.uploaded_by?.name || "Operator"} (UID #{image.uploaded_by?.id || "1"})</span>
+              </div>
+              <div className="tech-box">
+                <span className="tech-lbl">Acquisition Timestamp</span>
+                <span className="tech-val">{new Date(image.uploaded_at).toISOString()}</span>
+              </div>
+            </div>
+
+            {image.recommendation?.guidance && (
+              <div className="tech-guidance-box">
+                <strong>Engineering Guidance:</strong> {image.recommendation.guidance}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

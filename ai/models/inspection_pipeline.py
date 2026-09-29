@@ -14,8 +14,11 @@ from ai.models.defect_classifier import DefectInference
 from ai.models.defect_segmenter import UNet
 from ai.models.defect_type_scorer import DefectTypeScorer
 from ai.models.location_scorer import LocationScorer
+from ai.models.object_detector import ObjectDetector
 from ai.models.severity_scorer import SeverityScorer
 from ai.models.size_scorer import SizeScorer
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class InspectionPipeline:
@@ -33,6 +36,7 @@ class InspectionPipeline:
         category_classes_path: str = None,
         defect_classifier_path: str = None,
         defect_classes_path: str = None,
+        object_detector_path: str = None,
     ):
         self.segmentation_model = UNet(
             in_channels=3,
@@ -135,6 +139,21 @@ class InspectionPipeline:
                 model_path=defect_classifier_path,
                 defect_classes_path=defect_classes_path,
                 device=self.segmentation_device,
+            )
+
+        if object_detector_path is None:
+            default_yolo = PROJECT_ROOT / "ai/weights/yolo/baseline/weights/best.pt"
+            if default_yolo.exists():
+                object_detector_path = str(default_yolo)
+
+        self.object_detector = None
+        if object_detector_path and Path(object_detector_path).exists():
+            self.object_detector = ObjectDetector(
+                model_path=object_detector_path,
+                device=str(self.segmentation_device),
+                default_conf=0.25,
+                default_iou=0.70,
+                default_imgsz=640,
             )
 
         self.anomaly_thresholds = self._load_anomaly_thresholds(
@@ -474,6 +493,8 @@ class InspectionPipeline:
             severity_score = 0.0
             severity_level = "Low"
             quality_decision = "Accept"
+            detected_objects_count = 0
+            bounding_boxes = []
         else:
             # ------------------------------------------------
             # DEFECTIVE INVARIANT: Run U-Net and defect analysis
@@ -534,6 +555,18 @@ class InspectionPipeline:
                 )
             )
 
+            # ------------------------------------------------
+            # Object Detection (YOLO11n Bounding Boxes)
+            # ------------------------------------------------
+            detected_objects_count = 0
+            bounding_boxes = []
+            if self.object_detector is not None:
+                detection_res = self.object_detector.predict(
+                    image_input=image_path
+                )
+                detected_objects_count = detection_res["detected_objects_count"]
+                bounding_boxes = detection_res["bounding_boxes"]
+
         return {
             "image_path": str(image_path),
             "category": active_category,
@@ -554,4 +587,6 @@ class InspectionPipeline:
             "quality_decision": quality_decision,
             "heatmap": heatmap,
             "segmentation_mask": segmentation_mask,
+            "detected_objects_count": detected_objects_count,
+            "bounding_boxes": bounding_boxes,
         }

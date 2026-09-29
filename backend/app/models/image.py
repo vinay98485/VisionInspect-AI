@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -35,3 +35,5 @@ class Image(Base):
     severity_score = Column(String, nullable=True)
     severity_level = Column(String, nullable=True)
     quality_decision = Column(String, nullable=True)
+    detected_objects_count = Column(Integer, nullable=True, default=0)
+    bounding_boxes = Column(JSON, nullable=True)

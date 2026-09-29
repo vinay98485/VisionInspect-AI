@@ -50,39 +50,78 @@ inspection_pipeline = InspectionPipeline(
 )
 
 
-def create_defect_overlay(image_path: Path, segmentation_mask: np.ndarray, output_path: Path) -> None:
-    """Generates a visual defect contour overlay on the original image."""
+def create_defect_overlay(
+    image_path: Path,
+    segmentation_mask: np.ndarray,
+    output_path: Path,
+    bounding_boxes: list = None,
+) -> None:
+    """Generates a visual defect contour and bounding-box overlay on the original image."""
     original_image = cv2.imread(str(image_path))
     if original_image is None:
         raise ValueError("Unable to read original image for overlay")
 
     height, width = original_image.shape[:2]
-    mask = cv2.resize(
-        np.asarray(segmentation_mask, dtype=np.uint8),
-        (width, height),
-        interpolation=cv2.INTER_NEAREST,
-    )
-    mask = np.where(mask > 0, 255, 0).astype(np.uint8)
+    has_mask = segmentation_mask is not None and np.sum(segmentation_mask > 0) > 0
+    has_boxes = bool(bounding_boxes and len(bounding_boxes) > 0)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # For confirmed normal specimens without defect pixels, write original image cleanly
-    if np.sum(mask > 0) == 0:
+    # For confirmed normal specimens without defect pixels and without boxes, write original image cleanly
+    if not has_mask and not has_boxes:
         if not cv2.imwrite(str(output_path), original_image):
             raise ValueError("Failed to save defect overlay")
         return
 
-    overlay = np.zeros_like(original_image)
-    overlay[:, :, 2] = 255  # Red highlight channel (BGR)
-
     highlighted = original_image.copy()
-    defect_pixels = mask > 0
-    highlighted[defect_pixels] = cv2.addWeighted(
-        original_image[defect_pixels], 0.45, overlay[defect_pixels], 0.55, 0
-    )
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(highlighted, contours, -1, (0, 0, 255), 2)
+    # Draw pixel mask highlight and contours if present
+    if has_mask:
+        mask = cv2.resize(
+            np.asarray(segmentation_mask, dtype=np.uint8),
+            (width, height),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        mask = np.where(mask > 0, 255, 0).astype(np.uint8)
+
+        overlay = np.zeros_like(original_image)
+        overlay[:, :, 2] = 255  # Red highlight channel (BGR)
+
+        defect_pixels = mask > 0
+        highlighted[defect_pixels] = cv2.addWeighted(
+            original_image[defect_pixels], 0.45, overlay[defect_pixels], 0.55, 0
+        )
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(highlighted, contours, -1, (0, 0, 255), 2)
+
+    # Draw YOLO bounding boxes if present
+    if has_boxes:
+        for box in bounding_boxes:
+            x1 = max(0, min(width - 1, int(round(box["x1"]))))
+            y1 = max(0, min(height - 1, int(round(box["y1"]))))
+            x2 = max(0, min(width - 1, int(round(box["x2"]))))
+            y2 = max(0, min(height - 1, int(round(box["y2"]))))
+
+            cv2.rectangle(highlighted, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            conf_pct = int(round(box.get("confidence", 0.0) * 100))
+            label = f"Defect {conf_pct}%"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+
+            label_y1 = max(0, y1 - th - 6)
+            label_y2 = y1
+            cv2.rectangle(highlighted, (x1, label_y1), (x1 + tw + 6, label_y2), (0, 255, 0), -1)
+            cv2.putText(
+                highlighted,
+                label,
+                (x1 + 3, label_y2 - 3),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (0, 0, 0),
+                1,
+                cv2.LINE_AA,
+            )
 
     if not cv2.imwrite(str(output_path), highlighted):
         raise ValueError("Failed to save defect overlay")
@@ -136,6 +175,8 @@ def serialize_image(db: Session, image) -> dict:
         "severity_score": image.severity_score,
         "severity_level": image.severity_level,
         "quality_decision": image.quality_decision,
+        "detected_objects_count": getattr(image, "detected_objects_count", 0) or 0,
+        "bounding_boxes": getattr(image, "bounding_boxes", []) or [],
         "recommendation": recommendation,
         "inspection_overlay_available": overlay_path.exists(),
     }
@@ -210,6 +251,7 @@ def inspect_image(
             image_path=image_path,
             segmentation_mask=result["segmentation_mask"],
             output_path=overlay_path,
+            bounding_boxes=result.get("bounding_boxes", []),
         )
 
         image.category = result["category"]
@@ -231,6 +273,8 @@ def inspect_image(
         image.severity_score = str(result["severity_score"])
         image.severity_level = result["severity_level"]
         image.quality_decision = result["quality_decision"]
+        image.detected_objects_count = result.get("detected_objects_count", 0)
+        image.bounding_boxes = result.get("bounding_boxes", [])
         image.inspection_status = "completed"
 
         db.commit()
@@ -262,6 +306,8 @@ def inspect_image(
             "severity_score": result["severity_score"],
             "severity_level": result["severity_level"],
             "quality_decision": result["quality_decision"],
+            "detected_objects_count": result.get("detected_objects_count", 0),
+            "bounding_boxes": result.get("bounding_boxes", []),
             "recommendation": recommendation,
             "inspection_overlay_available": overlay_path.exists(),
         }
