@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-visioninspect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-visioninspect}
+      POSTGRES_DB: ${POSTGRES_DB:-visioninspect_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-visioninspect} -d ${POSTGRES_DB:-visioninspect_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://visioninspect:visioninspect@db:5432/visioninspect_db}
+      SUPERVISOR_REGISTRATION_CODE: ${SUPERVISOR_REGISTRATION_CODE:-default_secret_code}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost}
+    volumes:
+      - uploads_volume:/app/backend/uploads
+      # --- REQUIRED MODEL ARTIFACTS ---
+      # These must exist on the host at ./ai/models/ or Docker will create directories and crash the app.
+      - ./ai/models/normal_features_layer3.pt:/app/ai/models/normal_features_layer3.pt:ro
+      - ./ai/models/defect_segmenter_unet.pt:/app/ai/models/defect_segmenter_unet.pt:ro
+      # --- OPTIONAL MODEL ARTIFACTS ---
+      # Uncomment the following lines ONLY if you have downloaded these files to your host machine.
+      # If uncommented without the files present, Docker will mount empty directories and break startup.
+      # - ./ai/models/category_classifier_resnet18.pt:/app/ai/models/category_classifier_resnet18.pt:ro
+      # - ./ai/models/defect_classifier_hierarchical.pt:/app/ai/models/defect_classifier_hierarchical.pt:ro
+      # - ./ai/weights/yolo/baseline/weights/best.pt:/app/ai/weights/yolo/baseline/weights/best.pt:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8000}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  uploads_volume:

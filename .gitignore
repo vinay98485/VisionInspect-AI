@@ -30,6 +30,7 @@ mvtec_anomaly_detection.tar.xz
 ai/models/normal_features_layer3.pt
 ai/models/defect_segmenter_unet.pt
 *.pt
+*.whl
 *.pth
 *.pkl
 
