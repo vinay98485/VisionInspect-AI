@@ -1,588 +1,246 @@
 # VisionInspect AI
 
-An industrial manufacturing defect detection and quality inspection system. It combines deep-learning computer vision, anomaly detection, semantic segmentation, and automated decision-making to perform real-time quality control on the shop floor.
+### AI-powered manufacturing defect detection and quality inspection
+
+VisionInspect AI is an industrial quality control platform combining deep learning computer vision, automated severity scoring, and human-in-the-loop review. The system orchestrates a multi-stage AI pipeline to detect anomalies, segment defects, and issue automated Accept/Reject decisions, feeding all production data into a comprehensive reporting dashboard designed for Quality Engineers and Factory Supervisors.
+
+[![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org)
+[![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)](https://opencv.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
+[![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com)
+
+[🌐 Live Demo](http://3.27.27.79) | [📦 GitHub Repository](https://github.com/vinay98485/VisionInspect-AI)
+
+*(Note: The live application is hosted on AWS EC2).*
 
 ---
 
-## Table of Contents
+## Project Overview
 
-1. [Project Overview](#1-project-overview)
-2. [Key Features](#2-key-features)
-3. [System Architecture](#3-system-architecture)
-4. [AI Inspection Pipeline](#4-ai-inspection-pipeline)
-5. [ML Models and Their Roles](#5-ml-models-and-their-roles)
-6. [Severity Scoring and Quality Decisions](#6-severity-scoring-and-quality-decisions)
-7. [Backend API Overview](#7-backend-api-overview)
-8. [Database Overview](#8-database-overview)
-9. [Frontend Architecture](#9-frontend-architecture)
-10. [Docker Architecture](#10-docker-architecture)
-11. [Required Model Artifacts](#11-required-model-artifacts)
-12. [Required Calibration Files](#12-required-calibration-files)
-13. [Environment Variables](#13-environment-variables)
-14. [Docker Quickstart](#14-docker-quickstart)
-15. [Application URLs and Ports](#15-application-urls-and-ports)
-16. [Authentication Flow](#16-authentication-flow)
-17. [Basic Inspection Workflow](#17-basic-inspection-workflow)
-18. [Stopping the Stack](#18-stopping-the-stack)
-19. [Troubleshooting](#19-troubleshooting)
-20. [End-to-End Validation Results](#20-end-to-end-validation-results)
-21. [Known Limitations](#21-known-limitations)
-22. [Repository Structure](#22-repository-structure)
-23. [Running Tests (Non-Docker)](#23-running-tests-non-docker)
+VisionInspect AI automates the visual inspection of manufactured products. Rather than relying on a single monolithic model, the platform uses a tiered computer vision pipeline to handle anomaly detection, pixel-level defect localization, and specific defect classification. The AI outputs are mathematically weighted to produce a standardized 0–100 severity score and an automated Accept/Reject quality decision.
 
----
+The application is structured around a dual-role workflow: Quality Engineers manage day-to-day batch inspections, while Factory Supervisors audit the AI's automated decisions via a dedicated review queue, maintaining strict operational traceability.
 
-## 1. Project Overview
+## Key Features
 
-VisionInspect AI is a web-based industrial QC platform designed for factory floor deployment. Quality Engineers upload product images through a React frontend. The FastAPI backend coordinates a multi-stage AI pipeline that detects anomalies, segments defect regions, scores severity, and issues an automated Accept/Reject decision. All results are persisted in PostgreSQL and entered into a Supervisor Review Queue for human audit.
+- **JWT Authentication & RBAC**: Secure access for Quality Engineers and Factory Supervisors.
+- **AI-Based Anomaly Detection**: ResNet18 feature extraction for baseline anomaly detection.
+- **Defect Segmentation**: U-Net based sub-pixel defect localization.
+- **Secondary Object Localization**: YOLO11n integration for discrete bounding-box counting.
+- **Automated Severity Scoring**: Multi-factor algorithm weighing size, location, type, and confidence.
+- **Quality Decision Engine**: Automated Accept/Reject routing based on calculated severity.
+- **Supervisor Review Queue**: Dedicated workflow for supervisors to audit, approve, or override AI decisions.
+- **Manufacturing Analytics**: Dashboards tracking inspection history, defect trends, and severity distributions.
+- **Dockerized Deployment**: Fully containerized React/FastAPI/PostgreSQL stack.
+- **AWS Infrastructure**: Validated for cloud deployment on Amazon EC2 via CPU-based PyTorch inference.
 
-The entire application stack (frontend, backend, database) ships as a single Docker Compose environment.
+## System Architecture
 
----
+![VisionInspect AI system architecture](docs/images/architecture.jpg)
 
-## 2. Key Features
-
-- **Automated AI Inspection**: Full end-to-end defect detection, segmentation, classification, and scoring.
-- **Severity Engine**: Multi-factor 0–100 severity score (Size 30%, Location 25%, Defect Type 25%, AI Confidence 20%).
-- **Quality Decision Engine**: Automated Accept/Reject based on severity thresholds.
-- **Supervisor Review Queue**: Every inspection enters a review queue. Supervisors can audit and override the AI decision.
-- **Manufacturing Analytics**: Real-time dashboards for Accept/Reject trends, defect rates, and yield.
-- **Role-Based Access Control**: Quality Engineer (upload, inspect, view) and Factory Supervisor (review queue, override, reports).
-- **Visual Overlay**: Defect contour and bounding-box overlay image generated for each inspection.
-- **Dockerized Stack**: One-command deployment via Docker Compose.
-
----
-
-## 3. System Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    Docker Compose                   │
-│                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────┐  │
-│  │   Frontend   │  │   Backend    │  │   DB     │  │
-│  │  React+Nginx │  │   FastAPI    │  │ Postgres │  │
-│  │  port 80     │  │  port 8000   │  │ port5432 │  │
-│  └──────┬───────┘  └──────┬───────┘  └────┬─────┘  │
-│         │                 │               │        │
-│         └──── HTTP ───────┘               │        │
-│                           └── SQLAlchemy ─┘        │
-│                                                     │
-│  Backend container also mounts:                     │
-│    ./ai/models/*.pt  (read-only model weights)      │
-│    ./ai/models/*.csv (calibration files)            │
-│    uploads_volume    (uploaded images)              │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    User([User / Factory Floor]) -->|Upload Image| React(React Frontend)
+    React -->|REST API| FastAPI(FastAPI Backend)
+    
+    subgraph Inspection Pipeline
+        FastAPI --> CClassifier[Category Classification]
+        CClassifier --> Anomaly[ResNet18 Anomaly Detection]
+        Anomaly --> Segment[U-Net Segmentation]
+        Segment --> DClassifier[Defect Classification]
+        DClassifier --> YOLO[YOLO Secondary Localization]
+        YOLO --> Severity[Severity & Quality Decision]
+    end
+    
+    Severity -->|Store Results| DB[(PostgreSQL)]
+    DB -->|Analytics Data| Dashboard(Analytics & Reports)
+    DB -->|Queue| Review(Supervisor Review Queue)
 ```
 
----
+## AI / Computer Vision Pipeline
 
-## 4. AI Inspection Pipeline
+![VisionInspect AI inspection pipeline](docs/images/ai-pipeline.jpg)
 
-The `InspectionPipeline` orchestrates seven sequential stages:
+The inspection pipeline evaluates images in sequential stages to synthesize a final quality decision:
 
-| Stage | Component | Description |
-|---|---|---|
-| 1 | Category Classifier (ResNet18) | Identifies product category (e.g., bottle, pill) |
-| 2 | Anomaly Detector (Deep Feature Memory Bank) | Compares feature embeddings to normal references; produces an anomaly score |
-| 3 | U-Net Segmenter | Generates a pixel-level mask of the defective region |
-| 4 | Defect Classifier (Hierarchical ResNet18) | Identifies the specific defect subtype |
-| 5 | YOLO11n Object Detector | Secondary bounding-box localization of discrete defect objects |
-| 6 | Severity Engine | Computes weighted multi-factor severity score and level |
-| 7 | Decision Engine | Issues Accept or Reject quality decision with recommendation |
+1. **Category Classification**: (Optional) A customized ResNet18 model identifies the product category (e.g., bottle, pill) to route the image to the correct evaluation parameters.
+2. **Anomaly Detection**: A deep feature memory bank utilizing ResNet18 Layer-3 embeddings compares the incoming image against known "normal" references to flag anomalies.
+3. **Segmentation**: A U-Net architecture generates a pixel-level mask of the defective region, allowing the system to quantify defect area and location.
+4. **Defect Classification**: A hierarchical ResNet18 model identifies the specific defect subtype (e.g., scratch, crack, contamination).
+5. **Secondary Object Localization**: A YOLO11n one-class detector provides secondary bounding-box localization for discrete defect objects. This acts as a supplementary overlay, not the primary decision driver.
+6. **Severity Calculation**: The pipeline combines the outputs into a standardized severity score.
+7. **Quality Decision**: Evaluates the severity score against operational thresholds to issue an Accept/Reject recommendation.
 
----
+*Note: Within the validated regression scope, confirmed normal specimens produced zero defect-region outputs in both the segmentation and localization stages.*
 
-## 5. ML Models and Their Roles
+## Severity Scoring
 
-### Required (MUST exist on host for startup)
-| File | Role |
-|---|---|
-| `ai/models/normal_features_layer3.pt` | Normal-class feature memory bank for anomaly detection (728 MB) |
-| `ai/models/defect_segmenter_unet.pt` | U-Net segmentation model (119 MB) |
+The system employs a weighted formula to calculate an aggregate defect severity score.
 
-### Optional (comment out mounts in `docker-compose.yml` if not present)
-| File | Role |
-|---|---|
-| `ai/models/category_classifier_resnet18.pt` | ResNet18 category classifier |
-| `ai/models/defect_classifier_hierarchical.pt` | Hierarchical defect-type classifier |
-| `ai/weights/yolo/baseline/weights/best.pt` | YOLO11n object detection weights |
+**Severity Score Formula:**
+`Severity Score = (Size × 30%) + (Location × 25%) + (Defect Type × 25%) + (Confidence × 20%)`
 
-> **Warning**: If you uncomment an optional volume mount in `docker-compose.yml` but the file is not present on the host, Docker creates an **empty directory** in place of the file. This causes `torch.load()` to crash at startup. Only uncomment a mount when the file physically exists.
+**Severity Levels:**
+- **Critical:** 80–100
+- **High:** 60–79
+- **Medium:** 40–59
+- **Low:** 0–39
 
----
+**Quality Decision Mapping:**
+The current operational parameters enforce a strict binary quality gate:
+- **Low** → Accept
+- **Medium**, **High**, **Critical** → Reject
 
-## 6. Severity Scoring and Quality Decisions
+## Quality Engineer & Supervisor Workflow
 
-### Severity Score Formula
+![VisionInspect AI supervisor and analytics workflow](docs/images/supervisor-workflow.jpg)
+> **Quality and manufacturing workflow:** Factory supervisors can review AI-generated inspection results, approve or reject outcomes, and access production quality information.
 
-```
-severity_score = (size_score × 0.30) +
-                 (location_score × 0.25) +
-                 (defect_type_score × 0.25) +
-                 (confidence_score × 0.20)
-```
+**Quality Engineer Workflow:**
+1. Log into the platform.
+2. Upload a manufactured product image.
+3. Execute the AI inspection.
+4. Review the generated defect overlay, severity score, and automated quality decision.
 
-All sub-scores are 0–100. The final score is clamped to [0, 100].
+**Factory Supervisor Workflow:**
+1. Log into the platform with elevated credentials.
+2. Access the Supervisor Review Queue.
+3. Review pending inspections and the AI's automated decisions.
+4. Formally Approve or Reject the inspection, attaching audit notes.
+5. Monitor aggregate factory analytics and production quality reports.
 
-### Severity Levels and Quality Decisions
+## Analytics and Reporting
 
-| Severity Score | Level    | Quality Decision |
-|----------------|----------|-----------------|
-| 0 – 39         | Low      | Accept           |
-| 40 – 59        | Medium   | Reject           |
-| 60 – 79        | High     | Reject           |
-| 80 – 100       | Critical | Reject           |
+The platform includes a dedicated analytics engine tracking production quality. Dashboards display:
+- Aggregate inspection statistics (Total, Accepted, Rejected).
+- Defect distribution by category and subtype.
+- Severity level distributions across production batches.
+- Historical trend monitoring for quality drift.
+- Actionable operational insights (e.g., identifying recurring defect patterns).
 
-### Recommendation Logic
+## Dataset
 
-Recommendations are derived from the `(defect_type, quality_decision, severity_level)` combination and provide actionable guidance (e.g., "SCRAP", "REWORK", "PASS").
+The **MVTec Anomaly Detection (MVTec AD)** dataset was utilized for the development, training, and evaluation of the computer vision models. The deployed application relies entirely on the trained model artifacts and does not require or bundle the MVTec dataset at runtime. 
 
----
+## Model Validation
 
-## 7. Backend API Overview
+Validation was conducted through local regression testing and end-to-end AWS integration testing. 
+- **Validations performed:** Category accuracy, normal vs. defective binary routing, correct segmentation masking, severity calculation boundaries, and normal-output invariance.
+- **AWS parity:** The cloud deployment successfully reproduced the expected local runtime behavior without degradation.
 
-Base URL: `http://localhost:8000`
+## Model Performance & Limitations
 
-### Authentication
-| Method | Path | Description |
-|---|---|---|
-| POST | `/auth/register` | Register a new user (JSON body: `name`, `email`, `password`, `role_id`, optionally `supervisor_registration_code`) |
-| POST | `/auth/login` | Log in; returns `access_token` (JSON body: `email`, `password`) |
-| GET | `/auth/me` | Get current user profile (requires Bearer token) |
+While the pipeline accurately identifies and segments a wide range of defects, it has known operational limitations:
+- **Subtle Anomalies:** The YOLO one-class formulation struggles with highly subtle, pixel-level anomalies (such as slight color shifts or microscopic cracks). The U-Net segmentation serves as the more robust ground truth for the severity engine.
+- **Edge Cases:** During evaluation, a severely damaged transistor sample was incorrectly classified as "Normal" by the feature bank locally and on AWS. 
 
-### Inspections
-| Method | Path | Description |
-|---|---|---|
-| POST | `/images/upload` | Upload image file (multipart `file` field; requires Role 1 token) |
-| POST | `/images/{image_id}/inspect` | Trigger AI inspection on an uploaded image (requires Role 1 token) |
-| GET | `/images/` | List all images (Role 1 or 2) |
-| GET | `/images/{image_id}` | Get full inspection record (Role 1 or 2) |
-| GET | `/images/{image_id}/file` | Download original image file |
-| GET | `/images/{image_id}/inspection-overlay` | Download defect overlay PNG |
-| POST | `/images/{image_id}/review` | Submit supervisor review decision (Role 2) |
-| GET | `/images/supervisor/review-queue` | Get all images for review (Role 2) |
+The current system prioritizes a validated end-to-end operational inspection workflow over continuous model retraining during this deployment phase. Addressing fine-grained defect edge cases represents a future ML-development iteration.
 
-### Analytics
-| Method | Path | Description |
-|---|---|---|
-| GET | `/analytics/...` | Various dashboard aggregation endpoints |
+## Docker Deployment
 
-### Roles
-| role_id | Role Name |
-|---|---|
-| 1 | Quality Engineer |
-| 2 | Factory Supervisor |
+The application is fully containerized using Docker Compose:
+- **Frontend**: Multi-stage build (Node.js builder → Nginx production container).
+- **Backend**: FastAPI running on Uvicorn (Python 3.11-slim base). Model artifacts are bind-mounted at runtime to keep image sizes small.
+- **Database**: PostgreSQL 14 running on an internal Docker network, utilizing named volumes for data persistence.
 
----
+## AWS Deployment
 
-## 8. Database Overview
+The system is deployed on an **AWS EC2** instance running Amazon Linux. 
+- **Inference**: The PyTorch models execute using CPU-inference, which was validated as sufficient for the platform's API latency requirements.
+- **Storage**: Model artifacts (~850 MB) reside directly on the EC2 EBS volume and are mounted into the backend container.
+- **Networking**: The React frontend and FastAPI backend containers map directly to the host, with Nginx serving the UI to the public endpoint.
 
-PostgreSQL 14. Three tables:
+*Note: Environment-specific values (e.g., database credentials, JWT secrets, supervisor registration codes, and CORS origins) are injected via a `.env` file on the EC2 host and are never committed to version control.*
 
-| Table | Description |
-|---|---|
-| `roles` | `id`, `role` — seeded automatically on startup (`1 = Quality Engineer`, `2 = Factory Supervisor`) |
-| `users` | `id`, `name`, `email`, `password_hash`, `role_id`, `is_active` |
-| `images` | Full inspection record per uploaded image including all AI scores, severity, quality decision, and supervisor review fields |
+## Local Development
 
-The database is initialized (tables created, roles seeded) automatically on backend startup via `python -m app.database.init_db`.
+Ensure you have Docker and Docker Compose installed.
 
----
-
-## 9. Frontend Architecture
-
-- **Framework**: React 19 + Vite
-- **Styling**: Tailwind CSS
-- **API**: `frontend/src/services/api.js` — reads `VITE_API_BASE` environment variable (injected at Docker build time via `--build-arg`); falls back to `http://127.0.0.1:8000`.
-- **Routing**: React Router (handled by Nginx `try_files` fallback for SPA).
-- **Auth**: JWT stored client-side; all API requests include `Authorization: Bearer <token>`.
-- **Production server**: Nginx (not `npm run dev`). The Vite dev server is used only for local development.
-
----
-
-## 10. Docker Architecture
-
-Three services in `docker-compose.yml`:
-
-| Service | Image | Port | Notes |
-|---|---|---|---|
-| `db` | `postgres:14-alpine` | 5432 | Named volume `postgres_data` |
-| `backend` | `visioninspect_ai-backend` | 8000 | Built from `backend/Dockerfile`. Mounts model weights (read-only) and `uploads_volume`. |
-| `frontend` | `visioninspect_ai-frontend` | 80 | Multi-stage build: Node 20 builder → Nginx Alpine |
-
-**Backend Dockerfile highlights**:
-- Base: `python:3.11-slim`
-- System deps: `libgl1`, `libglib2.0-0` (required by OpenCV)
-- Dependencies: installed from `backend/requirements.txt` using the official PyTorch CPU index (`https://download.pytorch.org/whl/cpu`) to avoid downloading unused CUDA libraries (saves ~1.6 GB)
-- BuildKit pip cache (`--mount=type=cache,target=/root/.cache/pip`) enables faster rebuilds
-- PyTorch version: **2.14.0+cpu** (CPU-only; `torch.cuda.is_available() = False`)
-- Final image size: **~1.24 GB**
-
----
-
-## 11. Required Model Artifacts
-
-The following model files **must exist on the host** before starting the Docker stack. They are never committed to the repository (GitHub 100 MB file limit) and must be obtained separately.
-
-| Host Path | Size | Description |
-|---|---|---|
-| `./ai/models/normal_features_layer3.pt` | 728 MB | Normal feature memory bank |
-| `./ai/models/defect_segmenter_unet.pt` | 119 MB | U-Net defect segmenter |
-
-These are mounted read-only into the backend container:
-```yaml
-- ./ai/models/normal_features_layer3.pt:/app/ai/models/normal_features_layer3.pt:ro
-- ./ai/models/defect_segmenter_unet.pt:/app/ai/models/defect_segmenter_unet.pt:ro
-```
-
----
-
-## 12. Required Calibration Files
-
-These small configuration files are committed to the repository and automatically included in the Docker image via `COPY ai/ ./ai/`:
-
-| File | Description |
-|---|---|
-| `ai/models/anomaly_thresholds.csv` | Per-category anomaly detection thresholds |
-| `ai/models/size_score_boundaries.csv` | Defect area → size score mapping |
-| `ai/models/segmentation_threshold.txt` | U-Net binary mask threshold |
-| `ai/models/segmentation_postprocessing.json` | Morphological post-processing config |
-
----
-
-## 13. Environment Variables
-
-Copy `.env.example` to `.env` and fill in values before starting the stack.
-
-| Variable | Default (in compose) | Description |
-|---|---|---|
-| `POSTGRES_USER` | `visioninspect` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | `visioninspect` | PostgreSQL password |
-| `POSTGRES_DB` | `visioninspect_db` | PostgreSQL database name |
-| `DATABASE_URL` | `postgresql+psycopg2://visioninspect:visioninspect@db:5432/visioninspect_db` | Full SQLAlchemy connection URL. **Must use `postgresql+psycopg2://` prefix** (not bare `postgresql://`) to correctly select the installed `psycopg2-binary` driver. |
-| `SUPERVISOR_REGISTRATION_CODE` | `default_secret_code` | Required code for registering Supervisor accounts |
-| `FRONTEND_ORIGIN` | `http://localhost` | Allowed CORS origin for the backend |
-| `VITE_API_BASE` | `http://localhost:8000` | Backend API URL baked into the frontend at build time |
-
-> **Security**: Never commit your actual `.env` file. It is listed in `.gitignore`.
-
----
-
-## 14. Docker Quickstart
-
-### Prerequisites
-- Docker Desktop ≥ 4.x (includes Docker Compose V2)
-- At least 10 GB free disk space (base images + model weights)
-- Model artifacts present at `./ai/models/` (see [Section 11](#11-required-model-artifacts))
-
-### Steps
-
-**1. Clone the repository:**
 ```bash
-git clone <repo-url>
-cd VisionInspect_AI
-```
+# 1. Clone the repository
+git clone https://github.com/vinay98485/VisionInspect-AI.git
+cd VisionInspect-AI
 
-**2. Configure environment:**
-```bash
+# 2. Configure environment variables
 cp .env.example .env
-# Edit .env and set a strong POSTGRES_PASSWORD and SUPERVISOR_REGISTRATION_CODE
+
+# 3. Ensure required model weights are placed in ai/models/
+# normal_features_layer3.pt, defect_segmenter_unet.pt
+
+# 4. Build and run the stack
+docker compose up --build
 ```
+The frontend will be available at `http://localhost` and the backend API at `http://localhost:8000`.
 
-**3. Verify required model files exist:**
-```bash
-ls -lh ai/models/normal_features_layer3.pt ai/models/defect_segmenter_unet.pt
-```
+## Project Structure
 
-**4. Build and start the stack:**
-```bash
-docker compose up -d
-```
-The first build will take **3–5 minutes** as it downloads the Python base image and installs all PyPI packages including PyTorch (~200 MB CPU wheel).
-
-**5. Monitor backend startup** (model loading takes 30–60 seconds):
-```bash
-docker compose logs -f backend
-```
-Look for: `INFO: Application startup complete.`
-
-**6. Verify all services are running:**
-```bash
-docker compose ps
-```
-Expected:
-```
-NAME                           STATUS
-visioninspect_ai-backend-1     Up (healthy)
-visioninspect_ai-db-1          Up (healthy)
-visioninspect_ai-frontend-1    Up
-```
-
-**7. Verify health:**
-```bash
-curl http://localhost:8000/
-# → {"message":"VisionInspect AI Backend Running"}
-
-curl -I http://localhost
-# → HTTP/1.1 200 OK (nginx)
-```
-
----
-
-## 15. Application URLs and Ports
-
-| Service | URL |
-|---|---|
-| Frontend (React UI) | http://localhost |
-| Backend API | http://localhost:8000 |
-| API Interactive Docs | http://localhost:8000/docs |
-| PostgreSQL | localhost:5432 |
-
----
-
-## 16. Authentication Flow
-
-1. **Register** a Quality Engineer account:
-```bash
-curl -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Test Engineer","email":"engineer@example.com","password":"SecurePass123!","role_id":1}'
-```
-
-2. **Log in** to obtain a JWT:
-```bash
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"engineer@example.com","password":"SecurePass123!"}'
-# Returns: {"access_token": "<JWT>", ...}
-```
-
-3. Use the token for subsequent requests:
-```bash
-curl http://localhost:8000/auth/me \
-  -H "Authorization: Bearer <JWT>"
-```
-
-**Password requirements**: ≥ 8 characters, at least one uppercase, one lowercase, one digit, one special character.
-
-**Supervisor registration** additionally requires the `supervisor_registration_code` field to match the value set in `.env`.
-
----
-
-## 17. Basic Inspection Workflow
-
-```
-1. Register / Login  →  get JWT
-
-2. Upload image
-   POST /images/upload
-   -F "file=@/path/to/image.png"
-   → returns image_id
-
-3. Trigger inspection
-   POST /images/{image_id}/inspect
-   → returns full inspection result JSON
-
-4. Retrieve stored record
-   GET /images/{image_id}
-
-5. Download overlay
-   GET /images/{image_id}/inspection-overlay
-```
-
-**Minimal end-to-end example (curl):**
-```bash
-TOKEN="<JWT from login>"
-
-# 1. Upload
-RESP=$(curl -s -X POST http://localhost:8000/images/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@mvtec_anomaly_detection/bottle/test/good/000.png")
-IMAGE_ID=$(echo $RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-# 2. Inspect
-curl -s -X POST http://localhost:8000/images/$IMAGE_ID/inspect \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-```
-
----
-
-## 18. Stopping the Stack
-
-```bash
-# Stop containers (preserves volumes / database data)
-docker compose down
-
-# Stop and remove all volumes including PostgreSQL data
-docker compose down -v
-```
-
-> **Warning**: `docker compose down -v` permanently deletes the PostgreSQL database volume. All user accounts and inspection records will be lost.
-
----
-
-## 19. Troubleshooting
-
-### Backend crashes immediately with `ModuleNotFoundError: No module named 'psycopg'`
-**Cause**: `DATABASE_URL` uses `postgresql://` prefix instead of `postgresql+psycopg2://`.  
-**Fix**: Ensure `.env` contains `DATABASE_URL=postgresql+psycopg2://...`.
-
-### Backend crashes with `ModuleNotFoundError: No module named 'ultralytics'`
-**Cause**: Stale Docker image built before `ultralytics` was added to `requirements.txt`.  
-**Fix**: `docker compose build --no-cache backend`
-
-### Backend crashes with `IsADirectoryError` on a model file
-**Cause**: An optional volume mount in `docker-compose.yml` is uncommented, but the `.pt` file does not exist on the host. Docker creates an empty directory instead.  
-**Fix**: Comment out or remove the volume mount for the missing optional model file.
-
-### Build context transfer is very slow (multiple GB)
-**Cause**: A Python virtual environment (`backend/myvenv/`) was not excluded from the Docker context.  
-**Fix**: The `.dockerignore` already excludes `**/myvenv` and `**/venv`. Ensure your local virtual environment is inside one of these directories.
-
-### Backend image is unexpectedly large (>6 GB)
-**Cause**: Installing PyTorch from the default PyPI registry pulls in `nvidia-*` CUDA packages even on CPU-only builds.  
-**Fix**: The `backend/Dockerfile` explicitly uses `--extra-index-url https://download.pytorch.org/whl/cpu` to install the CPU wheel. Do not remove this flag. Verified image size: **~1.24 GB**.
-
-### `docker compose up` fails because Docker daemon is not running
-**Fix**: Start Docker Desktop, wait for it to reach the "running" state, then retry.
-
----
-
-## 20. End-to-End Validation Results
-
-The complete Docker Compose stack was validated on **Apple M2 (arm64 / aarch64)** using MVTec Anomaly Detection dataset images.
-
-**Validated PyTorch environment:**
-- `torch.__version__`: `2.14.0+cpu`
-- `torch.version.cuda`: `None`
-- `torch.cuda.is_available()`: `False`
-- NVIDIA packages installed: None
-
----
-
-### Test Case 1 — Normal Specimen
-
-| Field | Value |
-|---|---|
-| Image | `mvtec_anomaly_detection/bottle/test/good/000.png` |
-| Category | `bottle` |
-| Action | Upload → Inspect |
-| Inspection Decision | **NORMAL** |
-| Severity Level | **Low** |
-| Quality Decision | **Accept** |
-| Recommendation | **PASS** |
-| Detected Objects (YOLO) | 0 |
-| DB Persistence | ✅ Confirmed |
-
----
-
-### Test Case 2 — Defective Specimen
-
-| Field | Value |
-|---|---|
-| Image | `mvtec_anomaly_detection/bottle/test/broken_large/000.png` |
-| Category | `bottle` |
-| Defect Type | `broken_large` |
-| Action | Upload → Inspect |
-| Inspection Decision | **DEFECTIVE** |
-| Severity Level | **Critical** |
-| Quality Decision | **Reject** |
-| Recommendation | **SCRAP** |
-| Detected Objects (YOLO) | 5 |
-| DB Persistence | ✅ Confirmed |
-
----
-
-### Validated Services
-
-| Service | Status |
-|---|---|
-| PostgreSQL 14 | ✅ Healthy |
-| FastAPI Backend | ✅ Healthy (`/` returns 200) |
-| React/Nginx Frontend | ✅ Running (HTTP 200 on port 80) |
-| Backend→DB connection | ✅ Verified |
-| Model loading (`normal_features_layer3.pt`) | ✅ Verified |
-| Model loading (`defect_segmenter_unet.pt`) | ✅ Verified |
-| Calibration file loading | ✅ Verified |
-| Defect overlay generation | ✅ Verified |
-| Backend restart / persistence | ✅ Verified |
-
----
-
-## 21. Known Limitations
-
-- **YOLO object detection**: YOLO11n struggles with subtle pixel-level anomalies (color shifts, thin cracks). U-Net segmentation is the primary ground truth for the severity engine; YOLO provides secondary bounding-box overlays.
-- **MVTec dataset dependency**: Training scripts and calibration pipelines are written for the MVTec Anomaly Detection dataset. The runtime container does **not** require the MVTec dataset.
-- **CPU inference only**: The Docker deployment uses CPU inference. Model loading (especially `normal_features_layer3.pt` at 728 MB) takes 30–60 seconds on first startup.
-- **No cloud deployment**: This project has been validated for local Docker deployment only. Cloud or Kubernetes deployment is outside the current scope.
-
----
-
-## 22. Repository Structure
-
-```
+```text
 VisionInspect_AI/
 ├── ai/
-│   ├── dataset/           # MVTec data loaders and YOLO dataset prep scripts
-│   ├── evaluation/        # Validation scripts, regression suites, benchmarks
-│   ├── models/            # PyTorch model architectures, pipelines, calibration files
-│   └── weights/           # YOLO baseline weights (gitignored)
+│   ├── evaluation/        # Validation scripts, regression suites
+│   └── models/            # PyTorch models, scorers, pipelines, calibration files
 ├── backend/
-│   ├── app/
-│   │   ├── database/      # SQLAlchemy connection, init, migration scripts
-│   │   ├── models/        # SQLAlchemy ORM models
-│   │   ├── routers/       # FastAPI route handlers (auth, images, analytics)
-│   │   ├── schemas/       # Pydantic request/response schemas
-│   │   ├── security/      # JWT, password hashing, RBAC authorization
-│   │   └── services/      # Business logic (image service, auth service, recommendations)
+│   ├── app/               # FastAPI application, database schemas, API routes, security
 │   ├── tests/             # Backend unit and integration tests
-│   ├── Dockerfile         # Backend Docker image definition
+│   ├── Dockerfile         # Backend container definition
 │   └── requirements.txt   # Python dependencies
-├── docs/                  # Project documentation and UML diagrams
+├── docs/                  # Project documentation and architecture diagrams
 ├── frontend/
-│   ├── src/
-│   │   ├── components/    # React UI components
-│   │   ├── pages/         # Route-level page components
-│   │   └── services/      # API client (api.js)
-│   ├── Dockerfile         # Frontend multi-stage Docker build
-│   └── nginx.conf         # Nginx config for React Router SPA fallback
-├── .dockerignore          # Docker build context exclusions
-├── .env.example           # Environment variable template
-├── .gitignore             # Git exclusions
-└── docker-compose.yml     # Full stack Docker Compose definition
+│   ├── src/               # React application source (components, pages, services)
+│   ├── Dockerfile         # Frontend container definition
+│   └── nginx.conf         # Nginx production configuration
+├── docker-compose.yml     # Full stack Docker Compose definition
+└── README.md
 ```
 
----
+## API / Backend
 
-## 23. Running Tests (Non-Docker)
+Key REST endpoints driving the platform:
+- `POST /auth/register`: Register a new Quality Engineer or Supervisor.
+- `POST /auth/login`: Authenticate and receive a JWT.
+- `POST /images/upload`: Securely upload an image for inspection.
+- `POST /images/{id}/inspect`: Trigger the asynchronous AI inspection pipeline.
+- `GET /images/{id}`: Retrieve full inspection results and severity scores.
 
-For local development without Docker:
+## Security & Configuration
 
-```bash
-# Backend setup
-cd backend
-python -m venv myvenv
-source myvenv/bin/activate
-pip install -r requirements.txt
+The application is secured via JWT authentication and role-based access control (RBAC). 
+- All environment-specific variables, database passwords, and signing secrets are managed via `.env`.
+- **Never commit `.env`, AWS private keys, JWT tokens, or raw database credentials to version control.**
 
-# Initialize DB (requires a local PostgreSQL instance)
-export DATABASE_URL="postgresql+psycopg2://<user>:<pass>@localhost:5432/visioninspect_db"
-python -m app.database.init_db
+## Original Project Specification Alignment
 
-# Start backend dev server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+| Requirement | Implementation |
+|---|---|
+| Authentication & RBAC | JWT + Quality Engineer / Factory Supervisor roles |
+| Image acquisition | Direct image upload + backend validation |
+| Defect detection | ResNet18 deep feature anomaly detection |
+| Defect localization | U-Net segmentation + secondary YOLO bounding boxes |
+| Defect classification | Hierarchical ResNet18 classifier |
+| Severity scoring | Weighted severity formula (Size, Location, Type, Confidence) |
+| Quality control | Automated Accept/Reject + Supervisor review workflow |
+| Analytics | Real-time dashboard + trends + quality reporting |
+| Docker deployment | Containerized via Docker Compose |
+| Cloud deployment | Deployed to AWS EC2 (CPU Inference) |
+| Final validation | Local regression suites + AWS E2E testing |
 
-# Run backend tests
-PYTHONPATH=backend:. python -m unittest discover -s backend/tests
+## Project Status
 
-# Run AI regression suite
-PYTHONPATH=. python ai/evaluation/test_regression_inspection.py
-```
+**Status: Deployed and validated**
 
-```bash
-# Frontend setup
-cd frontend
-npm install
-npm run dev   # Dev server at http://localhost:5173
-```
+- Core modules implemented.
+- Docker deployment complete.
+- AWS deployment complete.
+- Quality Engineer & Factory Supervisor workflows verified.
+- End-to-end AWS workflow verified.
+- Reporting & Analytics verified.
+
+## Author
+
+**Vinay kumar**  
+B.Tech — Computer Science and Engineering  
+GitHub: [Vinay kumar](https://github.com/vinay98485)

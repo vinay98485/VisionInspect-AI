@@ -31,11 +31,16 @@ The AI automated quality decision logic enforces the following boundaries:
 
 ## 6. Testing Status & Known Limitations
 Extensive automated unit testing, API validation, and UI audits have been successfully completed. 
+
 **Known Limitations:**
-- YOLO11n object detection struggles with subtle pixel-level anomalies (e.g., color shifts, thin cracks). U-Net segmentation serves as the primary ground truth for the severity engine, while YOLO acts as an optional overlay.
+- **Subtle Anomalies**: YOLO11n object detection struggles with subtle pixel-level anomalies (e.g., color shifts, thin cracks). U-Net segmentation serves as the primary ground truth for the severity engine, while YOLO acts as an optional overlay.
+- **Edge Cases**: During evaluation, a severely damaged transistor sample was incorrectly classified as "Normal" by the feature bank locally and on AWS. The current deployment prioritizes a validated workflow over immediate model retraining.
 
 ## 7. Deployment Instructions
-The system is ready for containerized deployment via Docker.
-1. Configure `DATABASE_URL` for PostgreSQL.
-2. Build frontend static assets using `npm run build`.
-3. Serve backend via Uvicorn: `uvicorn app.main:app --host 0.0.0.0 --port 8000`.
+The system is fully containerized using Docker Compose for unified deployment. It has been validated for cloud deployment on AWS EC2 instances running Amazon Linux with CPU-based PyTorch inference.
+
+**Local / Cloud Startup:**
+1. Clone the repository and configure `.env` (database credentials, JWT secret).
+2. Ensure model artifacts (`normal_features_layer3.pt`, `defect_segmenter_unet.pt`) are downloaded to `ai/models/`.
+3. Launch the full stack using Docker: `docker compose up --build -d`.
+4. The Nginx reverse proxy will serve the React frontend on port 80, routing API traffic to FastAPI on port 8000.
