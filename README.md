@@ -40,7 +40,7 @@ The application is structured around a dual-role workflow: Quality Engineers man
 
 ## System Architecture
 
-![VisionInspect AI system architecture](docs/images/architecture.jpg)
+![VisionInspect AI system architecture](docs/images/architecture.png)
 
 ```mermaid
 graph TD
@@ -63,7 +63,7 @@ graph TD
 
 ## AI / Computer Vision Pipeline
 
-![VisionInspect AI inspection pipeline](docs/images/ai-pipeline.jpg)
+![VisionInspect AI inspection pipeline](docs/images/ai-pipeline.png)
 
 The inspection pipeline evaluates images in sequential stages to synthesize a final quality decision:
 
@@ -97,7 +97,7 @@ The current operational parameters enforce a strict binary quality gate:
 
 ## Quality Engineer & Supervisor Workflow
 
-![VisionInspect AI supervisor and analytics workflow](docs/images/supervisor-workflow.jpg)
+![VisionInspect AI supervisor and analytics workflow](docs/images/supervisor-workflow.png)
 > **Quality and manufacturing workflow:** Factory supervisors can review AI-generated inspection results, approve or reject outcomes, and access production quality information.
 
 **Quality Engineer Workflow:**
