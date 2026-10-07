@@ -1,0 +1,39 @@
+# Git and Docker
+.git
+.gitignore
+.dockerignore
+docker-compose.yml
+
+# IDEs and environments
+.vscode
+.idea
+myvenv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+
+# Node
+node_modules
+frontend/dist
+npm-debug.log
+
+# Large artifacts and local data
+.DS_Store
+runs/
+yolo_threshold_test/
+
+# Do NOT copy heavy model weights (they must be mounted)
+ai/models/*.pt
+ai/models/*.pth
+ai/weights/
+ai/evaluation/*.csv
+
+# Except allow the configuration csv/txt explicitly (just to be safe)
+!ai/models/anomaly_thresholds.csv
+!ai/models/size_score_boundaries.csv
+!ai/models/segmentation_threshold.txt
+!ai/models/segmentation_postprocessing.json
+**/myvenv
+**/venv
+backend/myvenv
